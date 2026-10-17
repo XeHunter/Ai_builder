@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     analytics,
     auth,
+    channels,
     cross_selling,
     expiry,
     forecasting,
@@ -10,9 +11,11 @@ from app.api.v1 import (
     inventory,
     merchandising,
     notifications,
+    onboarding,
     pricing,
     products,
     promotions,
+    realtime,
     shared_shopping,
     shopping_assistant,
     shopping_lists,
@@ -21,5 +24,5 @@ from app.api.v1 import (
 
 api_router = APIRouter(prefix="/api/v1")
 for module in (auth, products, shopping_assistant, shopping_lists, shared_shopping, store_navigation, inventory, expiry,
-               forecasting, pricing, promotions, merchandising, cross_selling, fraud, analytics, notifications):
+               forecasting, pricing, promotions, merchandising, cross_selling, fraud, analytics, notifications, onboarding, channels, realtime):
     api_router.include_router(module.router)

@@ -20,9 +20,27 @@ const overview = {
   alerts: [{ kind: "pricing", severity: "warning", title: "Price publication failed: Butter Croissant", link: "/merchant/pricing?change=pc1" }],
 };
 
+const brief = {
+  headline: "Clear short-dated dairy before noon",
+  actions: [],
+  provider: "demo",
+  model: null,
+  fell_back: true,
+  generated_at: "2026-10-17T06:00:00Z",
+  cached: false,
+  facts: { kpis: {}, facts: [] },
+};
+
+/** The overview also renders the AI brief and the compact live orders feed. */
+const extras = [
+  { path: "/merchant/ai-brief", body: brief },
+  { path: "/merchant/channels/orders", body: [] },
+  { path: "/realtime/config", body: { transport: "websocket" } },
+];
+
 describe("OverviewPage", () => {
   it("renders KPIs, change vs previous period, alerts and top products from the API", async () => {
-    const { fetchSpy } = renderMerchant(<OverviewPage />, { routes: [{ path: "/merchant/overview", body: overview }] });
+    const { fetchSpy } = renderMerchant(<OverviewPage />, { routes: [{ path: "/merchant/overview", body: overview }, ...extras] });
 
     expect(await screen.findByText("Net revenue")).toBeInTheDocument();
     expect(screen.getByText(/\+13.4% vs previous 30 days/)).toBeInTheDocument();
@@ -39,7 +57,7 @@ describe("OverviewPage", () => {
   });
 
   it("shows an inline error with retry when the overview fails", async () => {
-    renderMerchant(<OverviewPage />, { routes: [{ path: "/merchant/overview", status: 500, body: { error: { code: "boom", message: "Database unavailable" } } }] });
+    renderMerchant(<OverviewPage />, { routes: [{ path: "/merchant/overview", status: 500, body: { error: { code: "boom", message: "Database unavailable" } } }, ...extras] });
     expect(await screen.findByText("Database unavailable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });

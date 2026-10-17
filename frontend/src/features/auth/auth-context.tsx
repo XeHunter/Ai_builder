@@ -2,16 +2,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import { api, ApiError } from "@/lib/api";
+import { signOutFirebase } from "@/lib/firebase";
 import type { Me } from "@/types/api";
 
 interface AuthValue {
   me: Me | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<Me>;
+  /** One-click demo persona (customer / owner ...), only on demo deployments. */
+  demoLogin: (persona: DemoPersona) => Promise<Me>;
+  /** Adopt a session returned by another endpoint (e.g. store-owner sign-up). */
+  adopt: (data: Me) => void;
   logout: () => Promise<void>;
   can: (permission: string) => boolean;
   refresh: () => void;
 }
+
+export type DemoPersona = "customer" | "customer2" | "owner" | "manager" | "analyst";
 
 const AuthContext = React.createContext<AuthValue | null>(null);
 
@@ -38,6 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
+  const adopt = React.useCallback(
+    (data: Me) => {
+      // Drop the previous user's cached data but keep the session query itself, so mounted
+      // observers (route guards) see the new identity immediately.
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== ME_KEY[0] });
+      qc.setQueryData(ME_KEY, { user: data.user, merchant: data.merchant });
+    },
+    [qc],
+  );
+
   const value = React.useMemo<AuthValue>(
     () => ({
       me: meQuery.data ?? null,
@@ -46,9 +63,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await loginMut.mutateAsync({ email, password });
         return { user: data.user, merchant: data.merchant };
       },
+      demoLogin: async (persona) => {
+        await signOutFirebase();
+        const data = await api.post<Me>("/auth/demo-login", { persona });
+        adopt(data);
+        return { user: data.user, merchant: data.merchant };
+      },
+      adopt,
       logout: async () => {
         try {
           await api.post("/auth/logout");
+          await signOutFirebase();
         } finally {
           qc.clear();
           qc.setQueryData(ME_KEY, null);
@@ -57,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       can: (permission) => Boolean(meQuery.data?.merchant?.permissions.includes(permission)),
       refresh: () => void qc.invalidateQueries({ queryKey: ME_KEY }),
     }),
-    [meQuery.data, meQuery.isLoading, loginMut, qc],
+    [meQuery.data, meQuery.isLoading, loginMut, qc, adopt],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

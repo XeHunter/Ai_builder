@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_customer
-from app.core.exceptions import NotFoundError, PermissionDeniedError
+from app.core.exceptions import BusinessRuleError, NotFoundError, PermissionDeniedError
 from app.db.models import Store, User
 from app.db.session import get_db
 from app.schemas.shopping import (
@@ -25,7 +26,7 @@ from app.schemas.shopping import (
     RouteRequest,
     RouteResponse,
 )
-from app.services import shopping_service
+from app.services import channel_service, notification_service, shopping_service
 from app.websocket.hub import hub
 
 router = APIRouter(prefix="/shopping-lists", tags=["shopping-lists"])
@@ -140,3 +141,42 @@ def route(list_id: uuid.UUID, body: RouteRequest, db: Session = Depends(get_db),
     return shopping_service.route_for_list(db, sl, start_x=body.start_x, start_y=body.start_y,
                                            accessible_only=body.accessible_only,
                                            include_collected=body.include_collected, end=body.end)
+
+
+_COUNT_UNITS = {None, "", "pc", "pcs", "piece", "pieces", "pack", "packs", "packet", "packets", "x", "each"}
+
+
+class PickupOrder(BaseModel):
+    payment_method: str = Field("upi", pattern="^(upi|card|cash|wallet)$")
+
+
+@router.post("/{list_id}/order", status_code=status.HTTP_201_CREATED)
+def order_for_pickup(list_id: uuid.UUID, body: PickupOrder, db: Session = Depends(get_db),
+                     user: User = Depends(require_customer)) -> dict:
+    """Click & collect: order the list's matched, uncollected items for pickup at the list's store.
+
+    The order goes through the same omnichannel ingestion as a POS bill (``channel=online``): stock is
+    reserved FEFO, the store's live feed updates instantly, and shared-list members see the items
+    ticked off in real time."""
+    sl, m = shopping_service.get_list_for(db, list_id, user, write=True)
+    store = db.get(Store, sl.store_id) if sl.store_id else None
+    if store is None:
+        raise BusinessRuleError("Choose a store for this list before ordering")
+    items = [i for i in sl.items if i.product_id and i.status == "pending"]
+    if not items:
+        raise BusinessRuleError("There are no matched, uncollected items to order")
+    lines = [channel_service.OrderLine(
+        quantity=channel_service.ceil_qty(i.quantity) if (i.unit or "").lower() in _COUNT_UNITS else 1,
+        product_id=i.product_id) for i in items]
+    order = channel_service.ingest_order(db, merchant_id=store.merchant_id, store=store, channel="online",
+                                         external_id=None, lines=lines, customer=user, payment_method=body.payment_method,
+                                         source="OmniPulse app - click & collect")
+    for it in items:
+        ev, _ = shopping_service.apply_operation(db, sl, m, user, {"op": "collect", "item_id": str(it.id)})
+        hub.publish(sl.id, {"type": "event", "event": shopping_service.event_view(ev, user.full_name)})
+    notification_service.notify(
+        db, user_id=user.id, notification_type="shopping_reminder", title=f"Order {order['receipt_number']} confirmed",
+        body=f"{order['item_count']} items, ₹{order['total']:.2f}. Pick up at {store.name} - we'll keep it at the checkout.",
+        idempotency_key=f"pickup:{order['id']}", link=f"/shop/lists/{sl.id}")
+    db.commit()
+    return order

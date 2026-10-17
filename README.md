@@ -35,6 +35,20 @@ backend and one data model.
 - Fraud review queue (explainable rules + anomaly scores, human investigation), insights,
   integrations, audit log and background jobs.
 
+**Plug and play** (`/onboarding`, `/merchant/setup`, `/merchant/channels`)
+- Store-owner self sign-up and a 5-step setup wizard: store → generated floor plan (aisles, shelves,
+  chillers, checkouts) → catalog import → sales-history backfill → connect channels.
+- Connectors: any POS/billing software via the Orders API (API keys, idempotent), Shopify order
+  webhooks, a catalog feed for online storefronts, click & collect from the shopper app, and a POS
+  simulator. Every channel consumes the same batch stock (FEFO) and appears on a live orders feed.
+- One-click demo sign-in for judges (**Enter as Customer** / **Enter as Store Owner**).
+
+**On Google Cloud**: FastAPI on **Cloud Run**, SPA on **Firebase Hosting**, real-time lists and live
+feed via **Firestore** (authorised with **Firebase Auth** custom tokens), **Gemini** for the concierge,
+list parsing, embeddings, photo captions and the owner's AI brief. Deploy with
+`GEMINI_API_KEY=... ./scripts/deploy-gcp.sh <project-id>` — see [docs/deployment/GCP.md](docs/deployment/GCP.md)
+and [SUBMISSION.md](SUBMISSION.md).
+
 ## Prerequisites
 Python 3.12+, Node.js 24+, Git. Optional: PostgreSQL 15+ (pgvector), Redis 7, Docker.
 

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 from app.ai.prompts import templates
 from app.ai.providers.base import AIProvider, AIProviderError
 from app.ai.providers.demo import DemoProvider
-from app.ai.schemas import ComposedReply, ImageDescription, ParsedList, ShoppingIntent
+from app.ai.schemas import ComposedReply, ImageDescription, OperationsBrief, ParsedList, ShoppingIntent
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -82,3 +82,31 @@ class LLMProvider(AIProvider):
         except Exception as exc:
             log.warning("%s image description failed: %s", self.name, exc)
             return None
+
+    def operations_brief(self, facts: dict) -> OperationsBrief:
+        """LLM-written brief, accepted only if every cited fact exists and every number is grounded."""
+        self.last_call_fell_back = False
+        payload = json.dumps(facts, default=str, ensure_ascii=False)
+        try:
+            brief = self._structured(templates.BRIEF_SYSTEM, payload, OperationsBrief)
+            if not brief.actions or not brief_is_grounded(brief, facts, payload):
+                raise AIProviderError("brief cited unknown facts or ungrounded numbers")
+            return brief
+        except Exception as exc:
+            log.warning("%s operations brief failed, using template: %s", self.name, exc)
+            self.last_call_fell_back = True
+            return self._fallback.operations_brief(facts)
+
+
+def brief_is_grounded(brief: OperationsBrief, facts: dict, payload: str) -> bool:
+    import re
+
+    known = {f["id"] for f in facts.get("facts", [])}
+    numbers = set(re.findall(r"\d+(?:\.\d+)?", payload.replace(",", "")))
+    for a in brief.actions:
+        if any(fid not in known for fid in a.fact_ids):
+            return False
+        for n in re.findall(r"\d+(?:\.\d+)?", f"{a.title} {a.detail}".replace(",", "")):
+            if n not in numbers and n.rstrip("0").rstrip(".") not in numbers and len(n) > 1:
+                return False
+    return True

@@ -1,15 +1,18 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity, Store, UserRound } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Activity, ArrowRight, ShoppingBasket, Store, UserRound } from "lucide-react";
+import * as React from "react";
 import { useForm } from "react-hook-form";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Callout } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/input";
-import { useAuth } from "@/features/auth/auth-context";
-import { errorMessage } from "@/lib/api";
+import { type DemoPersona, useAuth } from "@/features/auth/auth-context";
+import { api, errorMessage } from "@/lib/api";
 
 export const loginSchema = z.object({
   email: z.string().trim().email("Enter a valid email address"),
@@ -25,6 +28,75 @@ const DEMO_ACCOUNTS = [
   { email: "manager.andheri@freshmart.demo", label: "Andheri store manager", icon: Store },
   { email: "analyst@freshmart.demo", label: "FreshMart analyst (read-only)", icon: Store },
 ];
+
+const QUICK_START: { persona: DemoPersona; title: string; subtitle: string; icon: typeof Store; points: string }[] = [
+  {
+    persona: "customer",
+    title: "Enter as Customer",
+    subtitle: "Priya, a shopper at FreshMart Andheri",
+    icon: ShoppingBasket,
+    points: "AI concierge · photo search · smart lists & in-store route · shared list · click & collect",
+  },
+  {
+    persona: "owner",
+    title: "Enter as Store Owner",
+    subtitle: "FreshMart admin (2 stores, POS + online)",
+    icon: Store,
+    points: "AI brief · live orders · expiry markdowns · forecasting · pricing · fraud · connectors",
+  },
+];
+
+/** One-click personas for judges and demos (hidden when the deployment disables demo sign-in). */
+function QuickStart({ onDone }: { onDone: (kind: "customer" | "merchant") => void }) {
+  const { demoLogin } = useAuth();
+  const [busy, setBusy] = React.useState<DemoPersona | null>(null);
+  const personas = useQuery({
+    queryKey: ["auth", "demo-personas"],
+    queryFn: () => api.get<{ enabled: boolean }>("/auth/demo-personas"),
+    staleTime: Infinity,
+    retry: false,
+  });
+  if (!personas.data?.enabled) return null;
+  const enter = async (persona: DemoPersona) => {
+    setBusy(persona);
+    try {
+      const who = await demoLogin(persona);
+      onDone(who.user.account_type);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section aria-labelledby="quick-start" className="flex flex-col gap-3">
+      <h2 id="quick-start" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        One-click demo, no password needed
+      </h2>
+      {QUICK_START.map((q) => (
+        <button
+          key={q.persona}
+          type="button"
+          onClick={() => void enter(q.persona)}
+          disabled={busy !== null}
+          className="group flex items-start gap-3 rounded-lg border border-border-strong bg-surface p-4 text-left shadow-sm transition hover:border-primary hover:shadow-md disabled:opacity-60"
+        >
+          <span className="rounded-md bg-primary-soft p-2 text-primary">
+            <q.icon className="size-5" aria-hidden />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-center gap-2 text-base font-semibold">
+              {busy === q.persona ? "Signing in…" : q.title}
+              <ArrowRight className="size-4 transition group-hover:translate-x-0.5" aria-hidden />
+            </span>
+            <span className="text-sm text-muted-foreground">{q.subtitle}</span>
+            <span className="mt-1 text-xs text-muted-foreground">{q.points}</span>
+          </span>
+        </button>
+      ))}
+    </section>
+  );
+}
 
 export default function LoginPage() {
   const { me, login } = useAuth();
@@ -58,6 +130,10 @@ export default function LoginPage() {
             Smart lists and in-store routes for shoppers; expiry, pricing, forecasting, merchandising and fraud workflows for
             store teams — all on one data model.
           </p>
+          <QuickStart onDone={(kind) => navigate(kind === "merchant" ? "/merchant" : "/shop", { replace: true })} />
+          <Link to="/onboarding" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+            Own a store? Set it up in 5 minutes <ArrowRight className="size-4" aria-hidden />
+          </Link>
         </div>
         <Card>
           <CardHeader>
@@ -82,7 +158,7 @@ export default function LoginPage() {
               </Button>
             </form>
             <div className="mt-6">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Demo accounts</p>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">More demo accounts</p>
               <div className="grid gap-1.5">
                 {DEMO_ACCOUNTS.map((a) => (
                   <button

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -10,6 +11,10 @@ from app.schemas.common import ORMModel
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+
+
+class DemoLoginRequest(BaseModel):
+    persona: Literal["customer", "customer2", "owner", "manager", "analyst"]
 
 
 class RegisterRequest(BaseModel):

@@ -21,11 +21,35 @@ from app.db.session import get_engine
 log = get_logger("app")
 
 
+def _seed_if_empty() -> None:
+    """Demo deployments (Cloud Run + in-container SQLite): migrate and load the demo dataset on boot."""
+    from sqlalchemy import select
+
+    from app.cli import migrate
+    from app.db.models import Merchant
+    from app.db.session import SessionLocal
+
+    migrate()
+    db = SessionLocal()
+    try:
+        if db.scalars(select(Merchant.id)).first() is None:
+            from app.seed.demo import seed_demo
+
+            t0 = time.time()
+            seed_demo(db)
+            db.commit()
+            log.info("Demo dataset seeded on startup in %.1fs", time.time() - t0)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     s = get_settings()
     s.validate_production()
     s.media_dir.mkdir(parents=True, exist_ok=True)
+    if s.seed_on_startup and s.app_env != "test":
+        _seed_if_empty()
     worker = None
     if s.run_worker_in_process and s.app_env != "test":
         from app.tasks.worker import Worker

@@ -18,6 +18,7 @@ from fastapi import WebSocket
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.integrations.firebase import firebase
 
 log = get_logger(__name__)
 
@@ -75,7 +76,12 @@ class ListHub:
             self._presence[list_id].pop(ws, None)
 
     def publish(self, list_id: uuid.UUID, message: dict) -> None:
-        """Thread-safe publish callable from sync request handlers and the WebSocket loop."""
+        """Thread-safe publish callable from sync request handlers and the WebSocket loop.
+
+        Events are also mirrored to Firestore (when enabled) for browsers subscribed through Firebase.
+        """
+        if message.get("type") in ("event", "list_deleted", "member_removed"):
+            firebase.list_event(list_id, message)
         if self._redis is not None:
             try:
                 self._redis.publish(f"list:{list_id}", json.dumps({"src": self._instance, "msg": message}))

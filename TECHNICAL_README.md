@@ -643,7 +643,7 @@ the default". Secrets are marked ●.
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL | `https://api.openai.com/v1` | No | as shown | |
 | `OPENAI_CHAT_MODEL`, `OPENAI_EMBEDDING_MODEL` | Models | `gpt-4.1-mini`, `text-embedding-3-small` | No | as shown | |
 | `GEMINI_API_KEY` | Gemini key (sent as `x-goog-api-key` header) | — | With `gemini` | none | ● |
-| `GEMINI_BASE_URL`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL` | Gemini endpoints/models | `gemini-2.5-flash`, `gemini-embedding-001` | No | as shown | |
+| `GEMINI_BASE_URL`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL` | Gemini endpoints/models | `gemini-3.5-flash-lite` (the GCP deploy script picks the newest Flash model the key can use), `gemini-embedding-001` | No | as shown | |
 | `EMBEDDING_DIMENSIONS` | Vector size for all providers | `256` | No | `256` | |
 | `AI_REQUEST_TIMEOUT_SECONDS` | Provider HTTP timeout | `30` | No | `30` | |
 | `WEATHER_PROVIDER` | `simulated` / `openweathermap` | `openweathermap` | No | `simulated` | |

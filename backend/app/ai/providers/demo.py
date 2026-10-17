@@ -15,7 +15,14 @@ import re
 
 from app.ai import lexicon
 from app.ai.providers.base import AIProvider
-from app.ai.schemas import ComposedReply, ParsedList, ParsedListItem, ShoppingIntent
+from app.ai.schemas import (
+    BriefAction,
+    ComposedReply,
+    OperationsBrief,
+    ParsedList,
+    ParsedListItem,
+    ShoppingIntent,
+)
 
 _BUDGET_RE = re.compile(r"(?:under|below|within|less than|upto|up to|max(?:imum)?|budget(?: of)?)\s*(?:rs\.?|inr|₹)?\s*(\d+(?:\.\d+)?)", re.I)
 _CURRENCY_RE = re.compile(r"(?:₹|rs\.?|inr)\s*(\d+(?:\.\d+)?)", re.I)
@@ -263,6 +270,18 @@ class DemoProvider(AIProvider):
         return ComposedReply(message=msg, highlight_product_ids=ids)
 
     # -- embeddings -----------------------------------------------------------
+    def operations_brief(self, facts: dict) -> OperationsBrief:
+        """Template brief: the highest-priority facts, in order, phrased verbatim."""
+        order = {"high": 0, "medium": 1, "low": 2}
+        items = sorted(facts.get("facts", []), key=lambda f: order.get(f.get("priority", "low"), 2))[:5]
+        actions = [BriefAction(title=f["title"][:120], detail=f.get("action", f["text"])[:400],
+                               priority=f.get("priority", "medium"), fact_ids=[f["id"]]) for f in items]
+        k = facts.get("kpis", {})
+        orders = k.get("orders_today", 0)
+        headline = (f"{orders} orders so far today across your channels; {len(actions)} things need your attention."
+                    if actions else f"{orders} orders so far today and nothing urgent - a quiet day.")
+        return OperationsBrief(headline=headline, actions=actions)
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [self._hash_embed(t) for t in texts]
 

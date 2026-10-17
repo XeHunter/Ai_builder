@@ -23,7 +23,7 @@ from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.db.models import AuditEvent, IntegrationConfig, JobRun, Store
 from app.db.session import get_db
 from app.schemas.common import Page, PageParams
-from app.services import dashboard_service
+from app.services import brief_service, dashboard_service
 from app.services.audit_service import record_audit
 from app.tasks.queue import enqueue, registered_job_types
 
@@ -42,6 +42,13 @@ def merchant_stores(ctx: MerchantContext = Depends(get_merchant_context), db: Se
 def overview(store_id: uuid.UUID | None = None, days: int = Query(30, ge=1, le=365),
              ctx: MerchantContext = Depends(require_permission("insights.read")), db: Session = Depends(get_db)) -> dict:
     return dashboard_service.overview(db, ctx.merchant_id, resolve_store_ids(db, ctx, store_id), days)
+
+
+@router.get("/ai-brief")
+def ai_brief(store_id: uuid.UUID | None = None, refresh: bool = False,
+             ctx: MerchantContext = Depends(require_permission("insights.read")), db: Session = Depends(get_db)) -> dict:
+    """Morning brief written by the configured AI provider (Gemini) from verified operational facts."""
+    return brief_service.operations_brief(db, ctx.merchant_id, resolve_store_ids(db, ctx, store_id), refresh=refresh)
 
 
 @router.get("/insights")

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 REPO_DIR = BACKEND_DIR.parent
@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     session_cookie_name: str = "op_session"
     cookie_secure: bool = False
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"])
+    # Comma-separated in the environment (or a JSON list).
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"])
     login_rate_limit_per_minute: int = 10
     invitation_ttl_hours: int = 72
 
@@ -52,7 +53,7 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     gemini_api_key: str | None = None
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
-    gemini_chat_model: str = "gemini-2.5-flash"
+    gemini_chat_model: str = "gemini-3.5-flash-lite"
     gemini_embedding_model: str = "gemini-embedding-001"
     embedding_dimensions: int = 256
     ai_request_timeout_seconds: float = 30.0
@@ -86,10 +87,25 @@ class Settings(BaseSettings):
 
     frontend_base_url: str = "http://localhost:5173"
 
+    # --- Google Cloud / Firebase ----------------------------------------
+    # With FIREBASE_ENABLED the API mirrors shared-list events and the merchant live feed into
+    # Firestore and mints Firebase Auth custom tokens so browsers can subscribe. Credentials come from
+    # Application Default Credentials (the Cloud Run service account, or `gcloud auth application-default login`).
+    firebase_enabled: bool = False
+    firebase_project_id: str | None = None
+    # One-click demo personas on the login page (POST /auth/demo-login). Never enable for real tenants.
+    demo_login_enabled: bool = True
+    # Seed the demo dataset on startup when the database is empty (Cloud Run with an in-container SQLite).
+    seed_on_startup: bool = False
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
-        if isinstance(v, str) and not v.strip().startswith("["):
+        if isinstance(v, str):
+            if v.strip().startswith("["):
+                import json
+
+                return json.loads(v)
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
 

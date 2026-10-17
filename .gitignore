@@ -24,3 +24,9 @@ frontend/playwright-report/
 .DS_Store
 .idea/
 .vscode/
+
+# Firebase CLI
+.firebase/
+firebase.deploy.json
+firebase-debug.log
+firestore-debug.log

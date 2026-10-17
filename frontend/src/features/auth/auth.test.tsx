@@ -46,7 +46,7 @@ describe("login", () => {
     mockApi([{ path: "/auth/me", status: 401, body: { error: { code: "not_authenticated", message: "x" } } }]);
     renderAt("/login", <Route path="/login" element={<LoginPage />} />);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /FreshMart admin/ }));
+    await user.click(await screen.findByRole("button", { name: /FreshMart admin.*admin@freshmart/ }));
     expect(screen.getByLabelText("Email")).toHaveValue("admin@freshmart.demo");
   });
 });
@@ -90,5 +90,38 @@ describe("RequireAuth", () => {
     mockApi([{ path: "/auth/me", body: merchantMe }]);
     renderAt("/merchant/pricing", routes);
     await waitFor(() => expect(screen.getByText("pricing page")).toBeInTheDocument());
+  });
+});
+
+describe("one-click demo", () => {
+  it("signs in as the store owner without a password", async () => {
+    const calls = mockApi([
+      { path: "/auth/me", status: 401, body: { error: { code: "not_authenticated", message: "x" } } },
+      { path: "/auth/demo-personas", body: { enabled: true, personas: ["customer", "owner"] } },
+      { method: "POST", path: "/auth/demo-login", body: { ...merchantMe, access_token: "t", expires_at: "x" } },
+    ]);
+    renderAt(
+      "/login",
+      <>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/merchant" element={<p>merchant home</p>} />
+      </>,
+    );
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Enter as Store Owner/ }));
+    expect(await screen.findByText("merchant home")).toBeInTheDocument();
+    expect(
+      calls.mock.calls.some(([u, init]) => String(u).includes("/auth/demo-login") && String(init?.body).includes("owner")),
+    ).toBe(true);
+  });
+
+  it("hides the quick start when demo sign-in is disabled", async () => {
+    mockApi([
+      { path: "/auth/me", status: 401, body: { error: { code: "not_authenticated", message: "x" } } },
+      { path: "/auth/demo-personas", body: { enabled: false, personas: [] } },
+    ]);
+    renderAt("/login", <Route path="/login" element={<LoginPage />} />);
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Enter as Customer/ })).not.toBeInTheDocument();
   });
 });

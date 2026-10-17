@@ -20,6 +20,7 @@ import { effectivePrice } from "@/features/shopping-assistant/components/product
 
 import { ChangeMatchDialog } from "./components/ChangeMatchDialog";
 import { ListItemRow } from "./components/ListItemRow";
+import { PickupOrderCard } from "./components/PickupOrderCard";
 import { RoutePanel } from "./components/RoutePanel";
 import { ShareDialog } from "./components/ShareDialog";
 import { computeGroups, computeProgress, upsertItem } from "./list-events";
@@ -229,7 +230,8 @@ function ListDetail({ listId }: { listId: string }) {
           )}
         </div>
 
-        <div className="lg:sticky lg:top-20 lg:self-start">
+        <div className="space-y-4 lg:sticky lg:top-20 lg:self-start">
+          {canEdit && list.store && <PickupOrderCard listId={list.id} storeName={list.store.name} items={items} />}
           <RoutePanel listId={list.id} storeId={list.store?.id ?? null} items={items} />
         </div>
       </div>

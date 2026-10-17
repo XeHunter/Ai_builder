@@ -32,6 +32,7 @@ from app.db.models.inventory import (
     StoreTask,
 )
 from app.db.models.ops import (
+    ApiKey,
     AuditEvent,
     GeofenceEvent,
     IntegrationConfig,
@@ -67,7 +68,7 @@ from app.db.models.store import (
 )
 
 __all__ = [
-    "AccountSecurityEvent", "AffinityRule", "AffinityRun", "AuditEvent", "AuthSession", "CategoryAffinity",
+    "AccountSecurityEvent", "AffinityRule", "ApiKey", "AffinityRun", "AuditEvent", "AuthSession", "CategoryAffinity",
     "Coupon", "CouponRedemption", "ExpiryAlert", "ForecastProductSummary", "ForecastResult", "ForecastRun",
     "FraudAlert", "FraudInvestigation", "FraudLabel", "FraudRule", "GeofenceEvent", "ImportJob", "ImportJobRow",
     "IntegrationConfig", "InventoryBatch", "InventoryItem", "InvestigationNote", "JobRun", "LayoutFixture",

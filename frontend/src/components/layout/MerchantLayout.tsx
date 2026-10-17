@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   Boxes,
+  Cable,
   CalendarClock,
   FlaskConical,
   Grid3x3,
@@ -12,6 +13,7 @@ import {
   Network,
   Package,
   Plug,
+  Rocket,
   Settings,
   ShieldAlert,
   TrendingUp,
@@ -48,6 +50,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
       { to: "/merchant/catalog", label: "Product catalog", icon: Package, permission: "catalog.read" },
       { to: "/merchant/inventory", label: "Inventory", icon: Boxes, permission: "inventory.read" },
       { to: "/merchant/expiry", label: "Expiry management", icon: CalendarClock, permission: "inventory.read" },
+      { to: "/merchant/channels", label: "Channels & orders", icon: Cable, permission: "insights.read" },
     ],
   },
   {
@@ -70,6 +73,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "Administration",
     items: [
+      { to: "/merchant/setup", label: "Store setup", icon: Rocket, permission: "insights.read" },
       { to: "/merchant/integrations", label: "Integrations", icon: Plug, permission: "insights.read" },
       { to: "/merchant/settings", label: "Settings & audit", icon: Settings, permission: "insights.read" },
     ],

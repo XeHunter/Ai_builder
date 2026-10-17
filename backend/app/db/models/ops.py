@@ -110,3 +110,24 @@ class JobRun(UUIDPk, Timestamps, Base):
     result: Mapped[dict | None] = mapped_column()
     error: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class ApiKey(UUIDPk, Timestamps, Base):
+    """Credential a POS, e-commerce platform or other system uses to push sales/orders (``X-Api-Key``).
+
+    Only a SHA-256 hash is stored; the key is shown once at creation. ``prefix`` identifies it in the UI.
+    """
+
+    __tablename__ = "api_keys"
+    merchant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"), index=True)
+    store_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80))
+    # pos|ecommerce|payments|other - which connector the key belongs to
+    channel: Mapped[str] = mapped_column(String(16))
+    provider: Mapped[str] = mapped_column(String(48), default="generic")
+    prefix: Mapped[str] = mapped_column(String(16))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)

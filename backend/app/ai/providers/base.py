@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from app.ai.schemas import ComposedReply, ImageDescription, ParsedList, ShoppingIntent
+from app.ai.schemas import ComposedReply, ImageDescription, OperationsBrief, ParsedList, ShoppingIntent
 
 
 class AIProviderError(RuntimeError):
@@ -38,6 +38,9 @@ class AIProvider(ABC):
 
     def describe_image(self, data: bytes, content_type: str) -> ImageDescription | None:
         return None
+
+    @abstractmethod
+    def operations_brief(self, facts: dict) -> OperationsBrief: ...
 
     def info(self) -> dict:
         return {

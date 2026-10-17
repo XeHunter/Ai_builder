@@ -24,6 +24,11 @@ def login(db: Session, email: str, password: str, user_agent: str | None, ip: st
         raise AuthenticationError("Incorrect email or password", code="invalid_credentials")
     if not user.is_active:
         raise AuthenticationError("Account is disabled")
+    return start_session(db, user, user_agent, ip)
+
+
+def start_session(db: Session, user: User, user_agent: str | None, ip: str | None,
+                  summary: str = "Signed in") -> tuple[User, str, datetime]:
     expires_at = session_expiry()
     sess = AuthSession(user_id=user.id, expires_at=expires_at, user_agent=(user_agent or "")[:255], ip_address=ip)
     db.add(sess)
@@ -33,11 +38,29 @@ def login(db: Session, email: str, password: str, user_agent: str | None, ip: st
     if user.account_type == "merchant" and user.memberships:
         merchant_id = user.memberships[0].merchant_id
     record_audit(
-        db, action="auth.login", entity_type="user", entity_id=user.id, summary="Signed in",
+        db, action="auth.login", entity_type="user", entity_id=user.id, summary=summary,
         actor=user, merchant_id=merchant_id, ip_address=ip,
     )
     db.commit()
     return user, create_access_token(user.id, sess.id, expires_at), expires_at
+
+
+# One-click personas for judges / demos (POST /auth/demo-login, only when DEMO_LOGIN_ENABLED).
+DEMO_PERSONAS: dict[str, str] = {
+    "customer": "priya@demo.omnipulse.ai",
+    "customer2": "rohan@demo.omnipulse.ai",
+    "owner": "admin@freshmart.demo",
+    "manager": "manager.andheri@freshmart.demo",
+    "analyst": "analyst@freshmart.demo",
+}
+
+
+def demo_login(db: Session, persona: str, user_agent: str | None, ip: str | None) -> tuple[User, str, datetime]:
+    email = DEMO_PERSONAS.get(persona)
+    user = db.scalars(select(User).where(User.email == email)).first() if email else None
+    if user is None or not user.is_active:
+        raise AuthenticationError("Demo account is not available", code="demo_unavailable")
+    return start_session(db, user, user_agent, ip, summary=f"Signed in with the one-click demo ({persona})")
 
 
 def logout(db: Session, sess: AuthSession, user: User) -> None:

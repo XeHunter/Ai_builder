@@ -48,6 +48,7 @@ function RouteError() {
 export const router = createBrowserRouter([
   { path: "/", element: <RootRedirect />, errorElement: <RouteError /> },
   { path: "/login", element: <LoginPage /> },
+  { path: "/onboarding", element: page(() => import("@/features/onboarding/SignupPage")) },
   {
     path: "/invite/:token",
     element: guard("customer", page(() => import("@/features/shared-shopping/InviteAcceptPage"))),
@@ -74,6 +75,8 @@ export const router = createBrowserRouter([
     errorElement: <RouteError />,
     children: [
       { index: true, element: guard("merchant", page(() => import("@/features/merchant-dashboard/OverviewPage")), "insights.read") },
+      { path: "setup", element: guard("merchant", page(() => import("@/features/onboarding/SetupWizardPage")), "insights.read") },
+      { path: "channels", element: guard("merchant", page(() => import("@/features/channels/ChannelsPage")), "insights.read") },
       { path: "catalog", element: guard("merchant", page(() => import("@/features/inventory/CatalogPage")), "catalog.read") },
       { path: "inventory", element: guard("merchant", page(() => import("@/features/inventory/InventoryPage")), "inventory.read") },
       { path: "inventory/import", element: guard("merchant", page(() => import("@/features/inventory/ImportPage")), "inventory.import") },

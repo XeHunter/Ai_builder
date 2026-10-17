@@ -24,11 +24,13 @@ import { PageHeader, Provenance, StatCard } from "@/components/ui/data";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/feedback";
 import { Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { LiveOrdersFeed } from "@/features/channels/LiveOrdersFeed";
 import { useMerchantStore } from "@/hooks/use-stores";
 import { api } from "@/lib/api";
 import { axisProps, CHART_COLORS, gridProps, tooltipStyle } from "@/lib/chart";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
+import { AiBriefCard } from "./components/AiBriefCard";
 import type { Overview } from "./types";
 
 const RANGES = [7, 30, 90] as const;
@@ -73,12 +75,14 @@ export default function OverviewPage() {
         }
       />
 
+      <AiBriefCard storeId={storeId} className="mb-6" />
+
       {q.isLoading ? (
         <OverviewSkeleton />
       ) : q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : q.data ? (
-        <OverviewBody data={q.data} onNavigate={navigate} />
+        <OverviewBody data={q.data} storeId={storeId} onNavigate={navigate} />
       ) : null}
     </div>
   );
@@ -100,7 +104,7 @@ function OverviewSkeleton() {
   );
 }
 
-function OverviewBody({ data, onNavigate }: { data: Overview; onNavigate: (to: string) => void }) {
+function OverviewBody({ data, storeId, onNavigate }: { data: Overview; storeId: string | null; onNavigate: (to: string) => void }) {
   const k = data.kpis;
   const change = k.revenue_change_pct;
   const go = (to: string) => () => onNavigate(to);
@@ -221,34 +225,37 @@ function OverviewBody({ data, onNavigate }: { data: Overview; onNavigate: (to: s
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Alerts needing action</CardTitle>
-            <CardDescription>Critical expiry, high-risk fraud, failed publications and stockouts.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {data.alerts.length === 0 ? (
-              <EmptyState title="Nothing urgent" description="No critical alerts right now." />
-            ) : (
-              <ul className="space-y-2">
-                {data.alerts.map((a, i) => (
-                  <li key={`${a.kind}-${i}`}>
-                    <Link to={a.link} className="flex items-start gap-3 rounded-md border border-border p-2.5 text-sm transition hover:border-primary/40 hover:bg-muted/50">
-                      <AlertTriangle className={cn("mt-0.5 size-4 shrink-0", statusVariant(a.severity) === "danger" ? "text-danger" : "text-warning")} aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="mb-0.5 flex items-center gap-1.5">
-                          <Badge variant={statusVariant(a.severity) === "neutral" ? "danger" : statusVariant(a.severity)}>{a.severity}</Badge>
-                          <span className="text-xs uppercase tracking-wide text-muted-foreground">{a.kind}</span>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Alerts needing action</CardTitle>
+              <CardDescription>Critical expiry, high-risk fraud, failed publications and stockouts.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data.alerts.length === 0 ? (
+                <EmptyState title="Nothing urgent" description="No critical alerts right now." />
+              ) : (
+                <ul className="space-y-2">
+                  {data.alerts.map((a, i) => (
+                    <li key={`${a.kind}-${i}`}>
+                      <Link to={a.link} className="flex items-start gap-3 rounded-md border border-border p-2.5 text-sm transition hover:border-primary/40 hover:bg-muted/50">
+                        <AlertTriangle className={cn("mt-0.5 size-4 shrink-0", statusVariant(a.severity) === "danger" ? "text-danger" : "text-warning")} aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="mb-0.5 flex items-center gap-1.5">
+                            <Badge variant={statusVariant(a.severity) === "neutral" ? "danger" : statusVariant(a.severity)}>{a.severity}</Badge>
+                            <span className="text-xs uppercase tracking-wide text-muted-foreground">{a.kind}</span>
+                          </span>
+                          <span className="block">{a.title}</span>
                         </span>
-                        <span className="block">{a.title}</span>
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+          <LiveOrdersFeed compact storeId={storeId} />
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

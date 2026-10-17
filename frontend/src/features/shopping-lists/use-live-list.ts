@@ -1,5 +1,6 @@
 /**
- * Live shopping list: REST snapshot in the TanStack Query cache, kept current by the list WebSocket.
+ * Live shopping list: REST snapshot in the TanStack Query cache, kept current by the list WebSocket
+ * or, on Firebase Hosting deployments, by a Firestore listener (`FirestoreListChannel`, same contract).
  *
  * Events are folded into the cached list immediately (`applyListEvent`), then a debounced REST refetch
  * fills in product cards and server-derived fields. The query's structural sharing refuses to replace
@@ -11,8 +12,11 @@ import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-quer
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useAuth } from "@/features/auth/auth-context";
 import { api } from "@/lib/api";
-import { ListSocket, type ListOperation, type SocketStatus } from "@/lib/list-socket";
+import { getFirestoreSession } from "@/lib/firebase";
+import { FirestoreListChannel } from "@/lib/list-firestore";
+import { ListSocket, type ListOperation, type ListSocketHandlers, type SocketStatus } from "@/lib/list-socket";
 import type { ShoppingListView } from "@/types/api";
 
 import { applyListEvents, needsProductData, upsertItem, withOverrides } from "./list-events";
@@ -20,8 +24,17 @@ import type { ItemOverride, ItemPayload } from "./types";
 
 export const listKey = (id: string) => ["shopping-list", id] as const;
 
+interface ListChannel {
+  connect(): void | Promise<void>;
+  send(op: ListOperation): string;
+  close(): void;
+}
+
 export function useLiveList(listId: string) {
   const qc = useQueryClient();
+  const { me } = useAuth();
+  const meId = me?.user.id ?? null;
+  const meName = me?.user.full_name ?? "";
   const key = React.useMemo(() => listKey(listId), [listId]);
   const query = useQuery({
     queryKey: key,
@@ -39,7 +52,7 @@ export function useLiveList(listId: string) {
   const [overrides, setOverrides] = React.useState<Record<string, ItemOverride>>({});
   const [deleted, setDeleted] = React.useState(false);
   const [accessError, setAccessError] = React.useState<string | null>(null);
-  const socketRef = React.useRef<ListSocket | null>(null);
+  const socketRef = React.useRef<ListChannel | null>(null);
   const cidToItem = React.useRef(new Map<string, string>());
   const refetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -60,7 +73,7 @@ export function useLiveList(listId: string) {
       if (refetchTimer.current) clearTimeout(refetchTimer.current);
       refetchTimer.current = setTimeout(() => void qc.invalidateQueries({ queryKey: key, exact: true }), delay);
     };
-    const socket = new ListSocket(listId, {
+    const handlers: ListSocketHandlers = {
       onSnapshot: (list) => qc.setQueryData(key, list as ShoppingListView),
       onEvents: (events) => {
         if (!events.length) return;
@@ -94,15 +107,25 @@ export function useLiveList(listId: string) {
       onPresence: setOnline,
       onStatus: setStatus,
       onDeleted: () => setDeleted(true),
-    });
-    socketRef.current = socket;
-    socket.connect();
+    };
+    let cancelled = false;
+    let channel: ListChannel | null = null;
+    void (async () => {
+      const fs = meId ? await getFirestoreSession(meId) : null;
+      if (cancelled) return;
+      channel = fs
+        ? new FirestoreListChannel(listId, handlers, fs.db, { uid: fs.uid, name: meName })
+        : new ListSocket(listId, handlers);
+      socketRef.current = channel;
+      void channel.connect();
+    })();
     return () => {
-      socket.close();
+      cancelled = true;
+      channel?.close();
       socketRef.current = null;
       if (refetchTimer.current) clearTimeout(refetchTimer.current);
     };
-  }, [listId, key, qc, clearOverride]);
+  }, [listId, key, qc, clearOverride, meId, meName]);
 
   /** Send an operation over the socket; `override` is shown immediately until the server acks. */
   const sendOp = React.useCallback((op: ListOperation, override?: Omit<ItemOverride, "cid">) => {

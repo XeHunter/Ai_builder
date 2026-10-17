@@ -47,3 +47,15 @@ class ComposedReply(BaseModel):
 class ImageDescription(BaseModel):
     caption: str
     keywords: list[str] = Field(default_factory=list)
+
+
+class BriefAction(BaseModel):
+    title: str = Field(min_length=3, max_length=120)
+    detail: str = Field(max_length=400)
+    priority: Literal["high", "medium", "low"] = "medium"
+    fact_ids: list[str] = Field(default_factory=list, max_length=6)
+
+
+class OperationsBrief(BaseModel):
+    headline: str = Field(max_length=240)
+    actions: list[BriefAction] = Field(default_factory=list, max_length=5)

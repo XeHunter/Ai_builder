@@ -574,7 +574,12 @@ def run_initial_analytics(db: Session, merchants: list[Merchant]) -> dict:
 
     out = {}
     for m in merchants:
-        res: dict = {"embeddings": reindex_products(db, m.id)}
+        try:
+            res: dict = {"embeddings": reindex_products(db, m.id)}
+        except Exception as exc:  # AI provider outage must not block the demo: search degrades to lexical
+            db.rollback()
+            log.warning("Embedding index for %s failed (%s); search will be lexical until reindexed", m.slug, exc)
+            res = {"embeddings": "failed"}
         run = AffinityRun(merchant_id=m.id, window_days=90, min_support=0.005, min_confidence=0.1, min_pair_count=20)
         db.add(run)
         db.commit()
