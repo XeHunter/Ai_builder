@@ -46,8 +46,7 @@ backend and one data model.
 **On Google Cloud**: FastAPI on **Cloud Run**, SPA on **Firebase Hosting**, real-time lists and live
 feed via **Firestore** (authorised with **Firebase Auth** custom tokens), **Gemini** for the concierge,
 list parsing, embeddings, photo captions and the owner's AI brief. Deploy with
-`GEMINI_API_KEY=... ./scripts/deploy-gcp.sh <project-id>` — see [docs/deployment/GCP.md](docs/deployment/GCP.md)
-and [SUBMISSION.md](SUBMISSION.md).
+`GEMINI_API_KEY=... ./scripts/deploy-gcp.sh <project-id>` — see [docs/deployment/GCP.md](docs/deployment/GCP.md).
 
 ## Prerequisites
 Python 3.12+, Node.js 24+, Git. Optional: PostgreSQL 15+ (pgvector), Redis 7, Docker.

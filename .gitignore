@@ -30,3 +30,6 @@ frontend/playwright-report/
 firebase.deploy.json
 firebase-debug.log
 firestore-debug.log
+
+# Personal submission notes
+SUBMISSION.md
