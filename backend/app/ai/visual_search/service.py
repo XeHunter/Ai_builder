@@ -71,10 +71,12 @@ def search_by_image(db: Session, store: Store, data: bytes, content_type: str | 
             for h in catalog_service.search(db, store.merchant_id, f"{desc.caption} {' '.join(desc.keywords)}", limit=10):
                 text_scores[h.product_id] = h.score
 
+    # With a caption, every product is scored on both signals (a product the caption doesn't match
+    # scores 0 on text) so a look-alike can't outrank the product the vision model actually named.
     combined = {}
     for pid in set(visual) | set(text_scores):
-        v, t = visual.get(pid, 0.0), text_scores.get(pid)
-        combined[pid] = 0.5 * v + 0.5 * t if t is not None else v
+        v = visual.get(pid, 0.0)
+        combined[pid] = 0.5 * v + 0.5 * text_scores.get(pid, 0.0) if text_scores else v
     ranked = sorted(combined.items(), key=lambda kv: (-kv[1], str(kv[0])))
     if not text_scores:
         ranked = [(pid, sc) for pid, sc in ranked if sc >= MIN_VISUAL_SIMILARITY]

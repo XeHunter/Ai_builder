@@ -278,3 +278,24 @@ def test_explicit_choices_keep_candidates_and_skip_match(client, customer, ids):
     assert kept["status"] == "unresolved" and kept["product_id"] is None
     summary = next(s for s in client.get("/api/v1/shopping-lists", headers=customer).json() if s["id"] == lst["id"])
     assert summary["store_id"] == ids["AND01"]
+
+
+def test_visual_search_caption_beats_lookalike_colours(client, customer, ids, monkeypatch):
+    """A product the vision model names must outrank a product that only has similar colours."""
+    from app.ai.schemas import ImageDescription
+    from app.ai.visual_search import service as vs
+
+    class FakeVision:
+        supports_vision = True
+
+        def describe_image(self, data, content_type):
+            return ImageDescription(caption="A Cadbury chocolate bar in green packaging", keywords=["cadbury", "chocolate"])
+
+    monkeypatch.setattr(vs, "get_ai_provider", lambda: FakeVision())
+    for photo, expected in (("photo_cho-001.jpg", "CHO-001"), ("photo_sea-001.jpg", None)):
+        with (REPO_DIR / "data" / "sample" / "query_images" / photo).open("rb") as f:
+            r = client.post("/api/v1/visual-search", data={"store_id": ids["AND01"]},
+                            files={"image": (photo, f, "image/jpeg")}, headers=customer)
+        assert r.status_code == 200, r.text
+        if expected:
+            assert r.json()["matches"][0]["sku"] == expected
