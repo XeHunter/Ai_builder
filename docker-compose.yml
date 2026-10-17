@@ -1,0 +1,80 @@
+# OmniPulse AI - local stack: PostgreSQL (with pgvector), Redis, API, background worker, web.
+#   docker compose up --build        -> http://localhost:8080 (web) and http://localhost:8000/docs (API)
+#   docker compose run --rm backend python -m app.cli reset --yes   # reseed the demo
+name: omnipulse
+
+x-backend-env: &backend-env
+  APP_ENV: development
+  DATABASE_URL: postgresql+psycopg://omnipulse:omnipulse@db:5432/omnipulse
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me-0123456789}
+  CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+  FRONTEND_BASE_URL: http://localhost:8080
+  AI_PROVIDER: ${AI_PROVIDER:-demo}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  WEATHER_PROVIDER: ${WEATHER_PROVIDER:-simulated}
+  OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
+  MEDIA_DIR: /app/media
+  SAMPLE_DATA_DIR: /app/media/sample
+  RUN_WORKER_IN_PROCESS: "false"
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: omnipulse
+      POSTGRES_PASSWORD: omnipulse
+      POSTGRES_DB: omnipulse
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnipulse -d omnipulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  migrate:
+    build: ./backend
+    environment: *backend-env
+    volumes: [media:/app/media]
+    depends_on:
+      db: { condition: service_healthy }
+    # Apply migrations, then seed demo data only if the database is empty.
+    command: ["sh", "-c", "python -m app.cli migrate && python -m app.cli seed"]
+    restart: "no"
+
+  backend:
+    build: ./backend
+    environment: *backend-env
+    volumes: [media:/app/media]
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: ./backend
+    environment: *backend-env
+    volumes: [media:/app/media]
+    command: ["python", "-m", "app.tasks.worker"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on:
+      backend: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  media:

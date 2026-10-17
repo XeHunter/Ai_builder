@@ -1,0 +1,14 @@
+product_id,product_name,description,category,price,cost_price,stock_quantity,store_id,aisle_id,shelf_location,shelf_coordinates,batch_id,expiry_date,target_segment,min_allowed_price,promotion_eligible
+MLK-003,Mother Dairy Cow Milk 500 ml,,Dairy,32,24,30,BAN01,D,D-3-2,,MLK-003-B10,2026-10-18,families,25,true
+BEV-005,Masala Chai Premix 500 g,Instant masala chai premix,Tea & Coffee,210,150,36,AND01,A1,A1-R-4-2,,,,all,170,true
+PRC-003,,,,,,55,AND01,,,,,,,,
+SEA-001,,,,,,45,AND01,A6,,36.6;16.2,,,,,
+BRD-002,,,,,,20,AND01,,Q9-9-9,,BRD-002-B20,2026-10-18,,,
+DRY-002,,,,,,4,AND01,,,,DRY-002-OLD,2026-10-16,,,
+TEA-001,,,,,,-5,AND01,,,,,,,,
+CHO-001,,,,,,12,AND01,,,,,31/31/2026,,,
+NEW-404,Mystery Snack,,Snacks & Confectionery,,,10,AND01,,,,,,,,
+SNK-001,,,,,,10,ZZZ99,,,,,,,,
+COF-001,,,,$4.99,,10,AND01,,,,,,,,
+HHD-002,,,,,,10,AND01,,,,,,,300,
+BEV-005,Masala Chai Premix 500 g,,Tea & Coffee,210,150,36,AND01,,,,,,,,
