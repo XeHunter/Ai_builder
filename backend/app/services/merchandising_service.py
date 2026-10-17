@@ -9,7 +9,8 @@ Generators (all deterministic and evidence-based):
 
 Every recommendation carries the evidence used, an evidence-quality band, the metric to watch, an
 A/B test plan and implementation steps. Expected outcomes are hypotheses to test, never promised
-uplift. Children's products are never targeted with checkout or eye-level-of-child placements.
+uplift. Children's products and confectionery are never targeted with checkout or child-eye-level
+placements (see ``layout_service.PLACEMENT_RULES``).
 """
 
 from __future__ import annotations
@@ -182,7 +183,7 @@ def generate(db: Session, store: Store, actor: User | None = None, max_recs: int
     for pid, locs in by_product.items():
         p = db.get(Product, pid)
         v = velocity.get(pid, 0.0)
-        if p.is_child_product or v < 2 or margin_pct(p.price, p.cost_price) < 20:
+        if layout_service.is_kid_targeted(p) or v < 2 or margin_pct(p.price, p.cost_price) < 20:
             continue
         loc = locs[0]
         if loc.level != 1 or loc.fixture.kind not in ("aisle_shelf", "wall_shelf"):
@@ -229,6 +230,8 @@ def _nearest_free_shelf(db: Session, shelves: list[ShelfLocation], used: dict, p
         if s.is_clearance or s.access_node_id is None or used.get(s.id, 0) > 0:
             continue
         if s.height_cm > 150 or s.level == 1:
+            continue
+        if layout_service.is_kid_targeted(product) and s.height_cm <= layout_service.KID_EYE_LEVEL_MAX_CM:
             continue
         if [v for v in layout_service.placement_violations(product, s, 0, 1) if v["severity"] == "block"]:
             continue

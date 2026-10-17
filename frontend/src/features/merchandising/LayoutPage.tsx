@@ -27,6 +27,7 @@ import type { Fixture, Layout, Shelf } from "@/types/api";
 
 import { ConfirmDialog } from "./ConfirmDialog";
 import { layoutKeys, plainError, useLayout, useStoreLayouts, violationsFrom, VIOLATION_LABEL } from "./layout-api";
+import { PlacementRulesCard } from "./PlacementRulesCard";
 import { ProductPicker } from "./ProductPicker";
 import type { LayoutDiff, LayoutSummary, MerchantProduct, PlaceResult, Violation } from "./types";
 
@@ -252,7 +253,8 @@ export default function LayoutPage() {
         Aisle and wall fixtures and the walkway graph are fixed in this version. Only endcaps, displays and clearance bins
         (dashed outline) can be dragged, and the server rejects moves that leave less than 0.6 m clearance from walking
         routes, overlap another fixture or leave the floor. Product placements are checked for refrigeration, safe height
-        for heavy items (≤ 100 cm), shelf capacity and children’s products at checkout.
+        for heavy items (≤ 100 cm), shelf capacity, and confectionery / children’s products at checkout or kids’ eye level.
+        See <strong>Placement rules</strong> for the live check.
       </Callout>
 
       {draftConflict && draftConflict !== layoutId && (
@@ -372,6 +374,7 @@ export default function LayoutPage() {
                 </CardContent>
               </Card>
             )}
+            <PlacementRulesCard layoutId={layoutId} />
           </div>
         </div>
       )}

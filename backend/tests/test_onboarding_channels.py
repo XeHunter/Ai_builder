@@ -224,3 +224,26 @@ def test_llm_brief_rejects_ungrounded_numbers():
     assert brief_is_grounded(ok, facts, payload)
     assert not brief_is_grounded(bad_num, facts, payload)
     assert not brief_is_grounded(bad_id, facts, payload)
+
+
+def test_placement_rule_book_and_kid_height_warning(client, admin, ids):
+    store = ids["AND01"]
+    layouts = client.get(f"{API}/merchant/stores/{store}/layouts", headers=admin).json()
+    active = next(x for x in layouts if x["status"] == "active")
+    book = client.get(f"{API}/merchant/layouts/{active['id']}/rules", headers=admin).json()
+    codes = {r["code"]: r for r in book["rules"]}
+    assert {"child_checkout", "kid_eye_level", "unsafe_height", "needs_refrigeration", "eye_level_test"} <= set(codes)
+    # the seed deliberately leaves one 5 kg atta bag at 140 cm (the safety-relocation demo)
+    assert book["placements_checked"] > 50 and book["blocking"] == 1
+    assert codes["unsafe_height"]["examples"][0]["sku"] == "STP-002"
+    assert codes["kid_eye_level"]["violations"] == 0 and book["kid_targeted_products"] >= 4
+
+    draft = client.post(f"{API}/merchant/stores/{store}/layouts/draft", headers=admin).json()
+    r = client.post(f"{API}/merchant/layouts/{draft['id']}/placements", headers=admin,
+                    json={"product_id": ids["p"]["CHO-002"], "shelf_code": "A2-L-1-1", "from_shelf_code": "A2-L-1-4"})
+    assert r.status_code in (200, 201), r.text
+    assert "kid_eye_level" in r.text
+    book = client.get(f"{API}/merchant/layouts/{draft['id']}/rules", headers=admin).json()
+    kid = next(x for x in book["rules"] if x["code"] == "kid_eye_level")
+    assert kid["violations"] == 1 and kid["examples"][0]["shelf_code"] == "A2-L-1-1"
+    client.delete(f"{API}/merchant/layouts/{draft['id']}", headers=admin)

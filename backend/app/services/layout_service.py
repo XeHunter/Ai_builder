@@ -35,6 +35,80 @@ from app.services.audit_service import record_audit
 HEAVY_KG = 5.0
 MAX_HEAVY_HEIGHT_CM = 100
 WALKWAY_CLEARANCE_M = 0.6
+# Shelves at or below this height are at a young child's eye level and reach.
+KID_EYE_LEVEL_MAX_CM = 90
+KID_TARGETED_TAGS = frozenset({"chocolate", "confectionery", "candy", "chips", "crisps", "toy"})
+
+
+def is_kid_targeted(product: Product) -> bool:
+    """Children's products and confectionery / crisps ('pester power' items)."""
+    return bool(product.is_child_product) or bool(KID_TARGETED_TAGS & {t.lower() for t in (product.tags or [])})
+
+
+# The merchandising rule book. Codes match ``placement_violations`` and the recommendation generators,
+# so the UI shows exactly what the editor enforces and what the AI is allowed to suggest.
+PLACEMENT_RULES: list[dict] = [
+    {"code": "needs_refrigeration", "kind": "block", "group": "Food safety", "title": "Chilled goods stay in chillers",
+     "description": "Products in chilled categories (dairy, frozen...) can only be placed on chilled fixtures.",
+     "why": "Cold-chain breaks spoil stock and are a food-safety risk."},
+    {"code": "unsafe_height", "kind": "block", "group": "Customer safety", "title": "Heavy items low",
+     "description": f"Items of {HEAVY_KG:g} kg or more may not sit above {MAX_HEAVY_HEIGHT_CM} cm.",
+     "why": "Lifting heavy packs from high shelves causes falls and injuries."},
+    {"code": "child_checkout", "kind": "block", "group": "Responsible retail", "title": "No kids' treats at checkout",
+     "description": "Children's products, confectionery and crisps cannot be placed on checkout impulse fixtures.",
+     "why": "Queue-side 'pester power' placement targets children; several countries restrict it (e.g. UK HFSS rules)."},
+    {"code": "kid_eye_level", "kind": "warn", "group": "Responsible retail", "title": "Treats above kids' eye level",
+     "description": f"Confectionery, crisps and children's products at {KID_EYE_LEVEL_MAX_CM} cm or lower are flagged. "
+                    "The AI never recommends moving them lower.",
+     "why": "Keeps sweets out of young children's line of sight and reach without hiding them from adults."},
+    {"code": "capacity", "kind": "block", "group": "Operations", "title": "Shelf capacity",
+     "description": "A shelf cannot hold more facings than its capacity.",
+     "why": "Overfilled shelves cause damage and out-of-place stock."},
+    {"code": "chiller_space", "kind": "warn", "group": "Operations", "title": "Don't waste chiller space",
+     "description": "Ambient, non-perishable products on chilled fixtures are flagged.",
+     "why": "Refrigerated space is scarce and costs energy."},
+    {"code": "walkway_clearance", "kind": "block", "group": "Accessibility", "title": "Clear walkways",
+     "description": f"Movable fixtures must stay at least {WALKWAY_CLEARANCE_M:g} m from walking routes.",
+     "why": "Keeps aisles passable for trolleys, wheelchairs and in-store navigation."},
+    {"code": "eye_level_test", "kind": "ai", "group": "AI recommendations", "title": "Best sellers to adult eye level",
+     "description": "Fast sellers (2+ units/day, 20%+ margin) stuck on the bottom shelf are proposed for a 100-140 cm "
+                    "shelf as an A/B test. Children's products are excluded.",
+     "why": "Eye-level shelves get more attention; the effect is measured, not assumed."},
+    {"code": "adjacency_test", "kind": "ai", "group": "AI recommendations", "title": "Bought together, placed together",
+     "description": "Strong co-purchase pairs (lift 1.5+) more than 12 m apart get a secondary placement test near "
+                    "each other, never at kids' height or above 150 cm.",
+     "why": "Shortens the shopper's walk and makes complements easy to find."},
+    {"code": "safety_relocation", "kind": "ai", "group": "AI recommendations", "title": "Fix unsafe placements",
+     "description": "Heavy items found above the safe height get a mandatory move-down recommendation.",
+     "why": "Safety issues are corrected, not tested."},
+]
+
+
+def layout_compliance(db: Session, layout: StoreLayout) -> dict:
+    """Check every placement of a layout against the rule book."""
+    placements = db.scalars(select(ProductPlacement).where(ProductPlacement.layout_id == layout.id)).all()
+    used: dict[uuid.UUID, int] = {}
+    for pl in placements:
+        used[pl.shelf_location_id] = used.get(pl.shelf_location_id, 0) + pl.facings
+    ids = {pl.product_id for pl in placements}
+    products = {p.id: p for p in db.scalars(select(Product).where(Product.id.in_(ids)))} if ids else {}
+    found: dict[str, list[dict]] = {}
+    for pl in placements:
+        p, shelf = products.get(pl.product_id), pl.shelf_location
+        if p is None:
+            continue
+        for v in placement_violations(p, shelf, used[shelf.id] - pl.facings, pl.facings):
+            found.setdefault(v["code"], []).append({"product": p.name, "sku": p.sku, "shelf_code": shelf.code,
+                                                     "height_cm": shelf.height_cm, "message": v["message"]})
+    rules = []
+    for r in PLACEMENT_RULES:
+        issues = found.get(r["code"], [])
+        rules.append({**r, "checked": r["kind"] != "ai", "violations": len(issues), "examples": issues[:5]})
+    return {"layout_id": str(layout.id), "layout_name": layout.name, "status": layout.status,
+            "placements_checked": len(placements),
+            "kid_targeted_products": sum(1 for p in products.values() if is_kid_targeted(p)),
+            "blocking": sum(r["violations"] for r in rules if r["kind"] == "block"),
+            "warnings": sum(r["violations"] for r in rules if r["kind"] == "warn"), "rules": rules}
 
 
 def placement_violations(product: Product, shelf: ShelfLocation, used_facings: int, facings: int) -> list[dict]:
@@ -48,9 +122,13 @@ def placement_violations(product: Product, shelf: ShelfLocation, used_facings: i
     if (product.weight_kg or 0) >= HEAVY_KG and shelf.height_cm > MAX_HEAVY_HEIGHT_CM:
         out.append({"severity": "block", "code": "unsafe_height",
                     "message": f"Items of {product.weight_kg} kg must not be placed above {MAX_HEAVY_HEIGHT_CM} cm."})
-    if product.is_child_product and fx.kind == "checkout":
+    if is_kid_targeted(product) and fx.kind == "checkout":
         out.append({"severity": "block", "code": "child_checkout",
-                    "message": "Children's products are not placed at checkout impulse fixtures."})
+                    "message": "Children's products and confectionery are not placed at checkout impulse fixtures."})
+    elif is_kid_targeted(product) and shelf.height_cm <= KID_EYE_LEVEL_MAX_CM:
+        out.append({"severity": "warn", "code": "kid_eye_level",
+                    "message": f"{product.name} at {shelf.height_cm} cm is at a young child's eye level; "
+                               f"keep confectionery above {KID_EYE_LEVEL_MAX_CM} cm."})
     if used_facings + facings > shelf.capacity_facings:
         out.append({"severity": "block", "code": "capacity",
                     "message": f"Shelf {shelf.code} has {shelf.capacity_facings - used_facings} free facings."})

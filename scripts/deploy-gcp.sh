@@ -125,7 +125,8 @@ step "Firebase Hosting + Firestore rules"
 TMP_CFG="$(mktemp)"
 sed "s/\"region\": \"us-central1\"/\"region\": \"${REGION}\"/g" "$ROOT/firebase.json" > "$TMP_CFG"
 cp "$TMP_CFG" "$ROOT/firebase.deploy.json"
-(cd "$ROOT" && firebase deploy --config firebase.deploy.json --only hosting,firestore:rules --project "$PROJECT" --non-interactive)
+# Low upload concurrency: Cloud Shell's network drops many parallel Hosting uploads.
+(cd "$ROOT" && FIREBASE_HOSTING_UPLOAD_CONCURRENCY=4 firebase deploy --config firebase.deploy.json --only hosting,firestore:rules --project "$PROJECT" --non-interactive)
 rm -f "$ROOT/firebase.deploy.json" "$TMP_CFG"
 
 URL="https://${PROJECT}.web.app"

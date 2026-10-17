@@ -69,6 +69,7 @@ export const VIOLATION_LABEL: Record<string, string> = {
   unsafe_height: "Unsafe height",
   needs_refrigeration: "Needs refrigeration",
   capacity: "Shelf capacity",
-  child_checkout: "Child product at checkout",
+  child_checkout: "Kids' treats at checkout",
+  kid_eye_level: "Kids' eye level",
   chiller_space: "Chiller space",
 };

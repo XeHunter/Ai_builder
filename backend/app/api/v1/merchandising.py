@@ -41,6 +41,13 @@ def layout_detail(layout_id: uuid.UUID, ctx: MerchantContext = Depends(require_p
     return layout_service.layout_detail(db, _layout(db, ctx, layout_id))
 
 
+@router.get("/layouts/{layout_id}/rules")
+def layout_rules(layout_id: uuid.UUID, ctx: MerchantContext = Depends(require_permission("layout.read")),
+                 db: Session = Depends(get_db)) -> dict:
+    """The placement rule book with live compliance for this layout (what the editor and the AI enforce)."""
+    return layout_service.layout_compliance(db, _layout(db, ctx, layout_id))
+
+
 @router.post("/stores/{store_id}/layouts/draft", status_code=status.HTTP_201_CREATED)
 def create_draft(store_id: uuid.UUID, ctx: MerchantContext = Depends(require_permission("layout.write")),
                  db: Session = Depends(get_db)) -> dict:
