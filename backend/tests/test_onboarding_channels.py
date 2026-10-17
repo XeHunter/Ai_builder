@@ -247,3 +247,26 @@ def test_placement_rule_book_and_kid_height_warning(client, admin, ids):
     kid = next(x for x in book["rules"] if x["code"] == "kid_eye_level")
     assert kid["violations"] == 1 and kid["examples"][0]["shelf_code"] == "A2-L-1-1"
     client.delete(f"{API}/merchant/layouts/{draft['id']}", headers=admin)
+
+
+def test_llm_timeout_falls_back_fast_and_cools_down():
+    import httpx
+
+    from app.ai.providers.llm_base import LLMProvider
+
+    class SlowProvider(LLMProvider):
+        name = "slow"
+        calls = 0
+
+        def _complete_json(self, system, user, schema, image=None):
+            SlowProvider.calls += 1
+            raise httpx.ReadTimeout("The read operation timed out")
+
+        def embed(self, texts):
+            return [[0.0] * self.embedding_dimensions for _ in texts]
+
+    p = SlowProvider(16)
+    first = p.extract_intent("where is the milk?")
+    assert p.last_call_fell_back and first.intent == "locate_product"
+    p.compose_reply(user_message="where is the milk?", intent=first, facts={"products": [], "complementary": []})
+    assert SlowProvider.calls == 1  # second call skipped the provider while cooling down

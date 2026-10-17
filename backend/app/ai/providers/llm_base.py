@@ -8,9 +8,11 @@ is reported in the response metadata (``provider_used``).
 from __future__ import annotations
 
 import json
+import time
 from abc import abstractmethod
 from typing import TypeVar
 
+import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.ai.prompts import templates
@@ -26,16 +28,31 @@ T = TypeVar("T", bound=BaseModel)
 class LLMProvider(AIProvider):
     kind = "llm"
 
+    # After a timeout, quota or billing error the provider is skipped for a while so every request
+    # doesn't wait for the same failure again; the deterministic fallback answers instantly meanwhile.
+    COOLDOWN_SECONDS = 60.0
+
     def __init__(self, dimensions: int) -> None:
         self.embedding_dimensions = dimensions
         self._fallback = DemoProvider(dimensions)
         self.last_call_fell_back = False
+        self._cooldown_until = 0.0
 
     @abstractmethod
     def _complete_json(self, system: str, user: str, schema: type[BaseModel], image: tuple[bytes, str] | None = None) -> str: ...
 
     def _structured(self, system: str, user: str, schema: type[T], image: tuple[bytes, str] | None = None) -> T:
-        raw = self._complete_json(system, user, schema, image)
+        if time.monotonic() < self._cooldown_until:
+            raise AIProviderError(f"{self.name} is cooling down after a recent timeout or quota error")
+        try:
+            raw = self._complete_json(system, user, schema, image)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            self._cooldown_until = time.monotonic() + self.COOLDOWN_SECONDS
+            raise AIProviderError(f"{self.name} unreachable: {exc}") from exc
+        except AIProviderError as exc:
+            if any(f"error {code}" in str(exc) for code in (402, 429, 500, 503)):
+                self._cooldown_until = time.monotonic() + self.COOLDOWN_SECONDS
+            raise
         try:
             return schema.model_validate(json.loads(raw))
         except (json.JSONDecodeError, ValidationError) as exc:

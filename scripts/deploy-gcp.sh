@@ -83,7 +83,8 @@ if [ -n "${GEMINI_API_KEY:-}" ]; then
   MODELS="$(curl -fsS -H "x-goog-api-key: ${GEMINI_API_KEY}"     "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" || true)"
   CHAT_MODEL="${GEMINI_CHAT_MODEL:-}"
   if [ -z "$CHAT_MODEL" ]; then
-    for m in gemini-3.8-flash gemini-3.5-flash gemini-3.5-flash-lite gemini-3.1-flash-lite gemini-2.5-flash; do
+    # Flash-Lite first: fastest responses and the most generous free-tier limits for short JSON tasks.
+    for m in gemini-3.5-flash-lite gemini-3.1-flash-lite gemini-3.8-flash gemini-3.5-flash gemini-2.5-flash-lite gemini-2.5-flash; do
       if grep -q "\"models/${m}\"" <<<"$MODELS"; then CHAT_MODEL="$m"; break; fi
     done
   fi
@@ -104,7 +105,7 @@ gcloud run deploy "$SERVICE" --source "$ROOT/backend" --region "$REGION" --servi
   --allow-unauthenticated --min-instances "$MIN_INSTANCES" --max-instances 1 --cpu 2 --memory 2Gi --cpu-boost \
   --timeout 300 --concurrency 80 \
   --set-secrets "$SECRETS" \
-  --set-env-vars "^@^APP_ENV=production@DEMO_MODE=true@DEMO_LOGIN_ENABLED=true@SEED_ON_STARTUP=true@LOG_JSON=true@COOKIE_SECURE=true@SESSION_COOKIE_NAME=__session@CORS_ORIGINS=${WEB_ORIGINS}@FRONTEND_BASE_URL=https://${PROJECT}.web.app@AI_PROVIDER=${AI_PROVIDER}@FIREBASE_ENABLED=true@FIREBASE_PROJECT_ID=${PROJECT}@MEDIA_DIR=/app/media@SAMPLE_DATA_DIR=/app/media/sample@JOBS_EAGER=true@RUN_WORKER_IN_PROCESS=false@ENABLE_SCHEDULER=false${GEMINI_ENV}"
+  --set-env-vars "^@^APP_ENV=production@DEMO_MODE=true@DEMO_LOGIN_ENABLED=true@SEED_ON_STARTUP=true@LOG_JSON=true@COOKIE_SECURE=true@SESSION_COOKIE_NAME=__session@CORS_ORIGINS=${WEB_ORIGINS}@FRONTEND_BASE_URL=https://${PROJECT}.web.app@AI_PROVIDER=${AI_PROVIDER}@FIREBASE_ENABLED=true@FIREBASE_PROJECT_ID=${PROJECT}@MEDIA_DIR=/app/media@SAMPLE_DATA_DIR=/app/media/sample@JOBS_EAGER=true@RUN_WORKER_IN_PROCESS=false@ENABLE_SCHEDULER=false@AI_REQUEST_TIMEOUT_SECONDS=12${GEMINI_ENV}"
 
 RUN_URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
 if [ "$MIN_INSTANCES" = "0" ]; then
