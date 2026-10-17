@@ -73,8 +73,11 @@ def _basket(db: Session, store: Store, intent: ShoppingIntent, carried: set[uuid
     return chosen, summary
 
 
-def _validate_reply(message: str, highlight: list[str], facts: dict) -> list[str]:
+def _validate_reply(message: str, highlight: list[str], facts: dict, *, user_message: str = "",
+                    intent: ShoppingIntent | None = None) -> list[str]:
     problems = []
+    # A greeting quotes no store data; its example prompts ("under ₹500") are not price claims.
+    check_amounts = intent is None or intent.intent != "greeting"
     ids = {p["id"] for p in facts.get("products", [])} | {p["id"] for p in facts.get("complementary", [])}
     for h in highlight:
         if h not in ids:
@@ -92,9 +95,13 @@ def _validate_reply(message: str, highlight: list[str], facts: dict) -> list[str
     for k in ("total", "budget"):
         if b.get(k) is not None:
             allowed.add(round(float(b[k]), 0))
+    # Amounts the shopper stated themselves (e.g. their budget) may be echoed back.
+    allowed |= {round(float(m.group(1).replace(",", "")), 0) for m in _RUPEE_RE.finditer(user_message)}
+    if intent is not None and intent.budget is not None:
+        allowed.add(round(float(intent.budget), 0))
     for m in _RUPEE_RE.finditer(message):
         v = round(float(m.group(1).replace(",", "")), 0)
-        if v not in allowed:
+        if check_amounts and v not in allowed:
             problems.append(f"unverified amount ₹{m.group(1)}")
     return problems
 
@@ -172,7 +179,7 @@ def chat(db: Session, store: Store, message: str, context_product_id: uuid.UUID 
 
     reply = provider.compose_reply(user_message=message, intent=intent, facts=facts)
     fell_back = fell_back or getattr(provider, "last_call_fell_back", False)
-    problems = _validate_reply(reply.message, reply.highlight_product_ids, facts)
+    problems = _validate_reply(reply.message, reply.highlight_product_ids, facts, user_message=message, intent=intent)
     grounded = not problems
     if problems:
         reply = DemoProvider().compose_reply(user_message=message, intent=intent, facts=facts)

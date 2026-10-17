@@ -41,9 +41,14 @@ class GeminiProvider(LLMProvider):
         if resp.status_code >= 400:
             raise AIProviderError(f"Gemini error {resp.status_code}: {resp.text[:300]}")
         try:
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            cand = resp.json()["candidates"][0]
+            # Newer models may split the answer over several parts and add thought parts; keep the answer text.
+            text = "".join(p.get("text", "") for p in cand["content"]["parts"] if not p.get("thought"))
         except (KeyError, IndexError) as exc:
-            raise AIProviderError("Gemini returned no content") from exc
+            raise AIProviderError(f"Gemini returned no content: {resp.text[:300]}") from exc
+        if not text.strip():
+            raise AIProviderError(f"Gemini returned an empty answer (finishReason={cand.get('finishReason')})")
+        return text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         model = f"models/{self.embedding_model}"

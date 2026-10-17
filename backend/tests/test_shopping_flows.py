@@ -222,6 +222,24 @@ def test_grounding_rejects_unverified_amounts():
     assert _validate_reply("ok", ["ghost"], facts)
 
 
+def test_grounding_allows_shopper_amounts_and_greeting_examples():
+    from app.ai.recommendations.assistant import _validate_reply
+    from app.ai.schemas import ShoppingIntent
+
+    facts = {"products": [], "complementary": []}
+    greeting = ShoppingIntent(intent="greeting")
+    assert _validate_reply('Try "breakfast for two under ₹500"', [], facts, user_message="hi", intent=greeting) == []
+    budget = ShoppingIntent(intent="budget_basket", budget=500)
+    assert _validate_reply("Here is a basket under ₹500.", [], facts, user_message="snacks under ₹500", intent=budget) == []
+    assert _validate_reply("Chips are ₹999.", [], facts, user_message="snacks under ₹500", intent=budget)
+
+
+def test_greeting_reply_is_marked_verified(client, customer, ids):
+    r = client.post("/api/v1/assistant/chat", headers=customer, json={"store_id": ids["AND01"], "message": "hi"})
+    assert r.status_code == 200, r.text
+    assert r.json()["grounding"] == {"validated": True, "issues": []}
+
+
 def test_visual_search_matches_query_photo(client, customer, ids):
     photo = REPO_DIR / "data" / "sample" / "query_images" / "photo_sea-001.jpg"
     with Path(photo).open("rb") as f:
