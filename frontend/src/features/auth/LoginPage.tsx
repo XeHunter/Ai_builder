@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, ArrowRight, ShoppingBasket, Store, UserRound } from "lucide-react";
+import { Activity, ArrowRight, LockKeyhole, ShoppingBasket, Store } from "lucide-react";
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
@@ -9,7 +9,6 @@ import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Callout } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/input";
 import { type DemoPersona, useAuth } from "@/features/auth/auth-context";
 import { api, errorMessage } from "@/lib/api";
@@ -19,15 +18,6 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 type LoginForm = z.infer<typeof loginSchema>;
-
-const DEMO_PASSWORD = "Demo@12345";
-const DEMO_ACCOUNTS = [
-  { email: "priya@demo.omnipulse.ai", label: "Priya — shopper", icon: UserRound },
-  { email: "rohan@demo.omnipulse.ai", label: "Rohan — shopper (shared list)", icon: UserRound },
-  { email: "admin@freshmart.demo", label: "FreshMart admin", icon: Store },
-  { email: "manager.andheri@freshmart.demo", label: "Andheri store manager", icon: Store },
-  { email: "analyst@freshmart.demo", label: "FreshMart analyst (read-only)", icon: Store },
-];
 
 const QUICK_START: { persona: DemoPersona; title: string; subtitle: string; icon: typeof Store; points: string }[] = [
   {
@@ -135,10 +125,13 @@ export default function LoginPage() {
             Own a store? Set it up in 5 minutes <ArrowRight className="size-4" aria-hidden />
           </Link>
         </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Use your account, or pick a demo account below.</CardDescription>
+        <Card className="flex flex-col justify-center">
+          <CardHeader className="items-center text-center">
+            <span className="mb-2 flex size-14 items-center justify-center rounded-full bg-primary-soft text-primary">
+              <LockKeyhole className="size-7" aria-hidden />
+            </span>
+            <CardTitle className="text-xl">Welcome back</CardTitle>
+            <CardDescription>Sign in to your OmniPulse account.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
@@ -153,33 +146,16 @@ export default function LoginPage() {
                   {form.formState.errors.root.message}
                 </p>
               )}
-              <Button type="submit" loading={form.formState.isSubmitting}>
+              <Button type="submit" size="lg" loading={form.formState.isSubmitting}>
                 Sign in
               </Button>
             </form>
-            <div className="mt-6">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">More demo accounts</p>
-              <div className="grid gap-1.5">
-                {DEMO_ACCOUNTS.map((a) => (
-                  <button
-                    key={a.email}
-                    type="button"
-                    onClick={() => {
-                      form.setValue("email", a.email);
-                      form.setValue("password", DEMO_PASSWORD);
-                    }}
-                    className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-muted"
-                  >
-                    <a.icon className="size-4 text-muted-foreground" aria-hidden />
-                    <span className="font-medium">{a.label}</span>
-                    <span className="ml-auto truncate text-xs text-muted-foreground">{a.email}</span>
-                  </button>
-                ))}
-              </div>
-              <Callout tone="simulated" className="mt-3">
-                Demo credentials (password <code className="font-mono">{DEMO_PASSWORD}</code>) are for local demo data only.
-              </Callout>
-            </div>
+            <p className="mt-6 border-t border-border pt-4 text-center text-sm text-muted-foreground">
+              New store owner?{" "}
+              <Link to="/onboarding" className="font-medium text-primary hover:underline">
+                Create your store account
+              </Link>
+            </p>
           </CardContent>
         </Card>
       </div>

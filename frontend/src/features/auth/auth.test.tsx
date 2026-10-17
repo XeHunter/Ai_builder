@@ -41,14 +41,6 @@ describe("login", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     expect(await screen.findByText("Incorrect email or password")).toBeInTheDocument();
   });
-
-  it("demo account buttons fill the form", async () => {
-    mockApi([{ path: "/auth/me", status: 401, body: { error: { code: "not_authenticated", message: "x" } } }]);
-    renderAt("/login", <Route path="/login" element={<LoginPage />} />);
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /FreshMart admin.*admin@freshmart/ }));
-    expect(screen.getByLabelText("Email")).toHaveValue("admin@freshmart.demo");
-  });
 });
 
 describe("RequireAuth", () => {
