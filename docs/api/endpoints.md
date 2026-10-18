@@ -75,6 +75,12 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 | GET | `/api/v1/merchant/affinity/runs/{run_id}/graph` | Product Graph |
 | GET | `/api/v1/merchant/affinity/runs/{run_id}/heatmap` | Symmetric category x category lift matrix (cells without enough co-purchases are null). |
 
+## demo
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/demo/reset` | Wipe and reseed the demo data with today's dates. Needs ``X-Reset-Token`` = ``DEMO_RESET_TOKEN``. |
+
 ## expiry
 
 | Method | Path | Description |

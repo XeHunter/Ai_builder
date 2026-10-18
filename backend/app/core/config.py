@@ -97,6 +97,8 @@ class Settings(BaseSettings):
     demo_login_enabled: bool = True
     # Seed the demo dataset on startup when the database is empty (Cloud Run with an in-container SQLite).
     seed_on_startup: bool = False
+    # Shared secret for POST /api/v1/demo/reset (nightly scheduler). Unset = endpoint disabled.
+    demo_reset_token: str | None = None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

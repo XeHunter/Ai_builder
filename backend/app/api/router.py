@@ -5,6 +5,7 @@ from app.api.v1 import (
     auth,
     channels,
     cross_selling,
+    demo,
     expiry,
     forecasting,
     fraud,
@@ -24,5 +25,5 @@ from app.api.v1 import (
 
 api_router = APIRouter(prefix="/api/v1")
 for module in (auth, products, shopping_assistant, shopping_lists, shared_shopping, store_navigation, inventory, expiry,
-               forecasting, pricing, promotions, merchandising, cross_selling, fraud, analytics, notifications, onboarding, channels, realtime):
+               forecasting, pricing, promotions, merchandising, cross_selling, fraud, analytics, notifications, onboarding, channels, realtime, demo):
     api_router.include_router(module.router)

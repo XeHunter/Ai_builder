@@ -733,6 +733,7 @@ the default". Secrets are marked ●.
 | `FIREBASE_ENABLED` | Mirror lists/feed to Firestore and mint Firebase custom tokens (needs Application Default Credentials) | `true` | No | `false` | |
 | `FIREBASE_PROJECT_ID` | Firebase / Google Cloud project | `aibuilder-5681b` | With Firebase | from credentials | |
 | `DEMO_LOGIN_ENABLED` | One-click demo personas on the sign-in page | `false` for real tenants | No | `true` | |
+| `DEMO_RESET_TOKEN` | Shared secret for `POST /api/v1/demo/reset` (nightly reseed by Cloud Scheduler); unset disables the endpoint | random 48 hex chars | No | none | ● |
 | `SEED_ON_STARTUP` | Migrate and seed the demo dataset on boot when the DB is empty (Cloud Run + SQLite) | `true` | No | `false` | |
 | `VITE_FIREBASE_CONFIG` | Frontend: Firebase web config JSON for local testing (Hosting serves it automatically) | `{"apiKey":…,"projectId":…}` | No | none | |
 | `VITE_API_BASE_URL` | Frontend: API origin when not proxied | `https://api.example.com` | No | same origin | |
@@ -895,7 +896,10 @@ Flash-Lite model the key can use, deploys `backend/` to **Cloud Run** (max one i
 database seeded on start, scale to zero plus a free Cloud Scheduler keep-warm ping, or `ALWAYS_ON=1`),
 builds the SPA and deploys **Firebase Hosting** and `firestore.rules`. One manual step: Firebase
 console → Authentication → Get started. Reset to clean demo data with
-`gcloud run services update omnipulse-api --region us-central1 --update-env-vars DEMO_RESET=$(date +%s)`.
+`gcloud run services update omnipulse-api --region us-central1 --update-env-vars DEMO_RESET=$(date +%s)`;
+the script also creates a Cloud Scheduler job (`omnipulse-nightly-reset`, 03:00 Asia/Kolkata) that
+calls `POST /api/v1/demo/reset` with `X-Reset-Token`, so the date-relative demo data (expiring
+batches, the two-day rain forecast, recent sales) is rebuilt every night.
 Details, costs and troubleshooting: [docs/deployment/GCP.md](docs/deployment/GCP.md).
 
 ---

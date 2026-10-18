@@ -64,7 +64,8 @@ ensure_secret() {
 
 step "Secrets"
 ensure_secret omnipulse-jwt-secret "$(openssl rand -hex 32)"
-SECRETS="JWT_SECRET=omnipulse-jwt-secret:latest"
+ensure_secret omnipulse-reset-token "$(openssl rand -hex 24)"
+SECRETS="JWT_SECRET=omnipulse-jwt-secret:latest,DEMO_RESET_TOKEN=omnipulse-reset-token:latest"
 AI_PROVIDER="demo"
 if [ -n "${GEMINI_API_KEY:-}" ]; then
   ensure_secret omnipulse-gemini-key "$GEMINI_API_KEY" update
@@ -117,6 +118,18 @@ if [ "$MIN_INSTANCES" = "0" ]; then
   fi
   gcloud scheduler jobs "$ACTION" http omnipulse-keep-warm --location "$REGION" --schedule "*/5 * * * *" \
     --uri "${RUN_URL}/health/live" --http-method GET >/dev/null
+fi
+
+step "Nightly demo reset at 03:00 India time (keeps the date-relative demo data current)"
+RESET_TOKEN="$(gcloud secrets versions access latest --secret=omnipulse-reset-token)"
+if gcloud scheduler jobs describe omnipulse-nightly-reset --location "$REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http omnipulse-nightly-reset --location "$REGION" --schedule "0 3 * * *" \
+    --time-zone "Asia/Kolkata" --uri "${RUN_URL}/api/v1/demo/reset" --http-method POST \
+    --update-headers "X-Reset-Token=${RESET_TOKEN}" --attempt-deadline 300s >/dev/null
+else
+  gcloud scheduler jobs create http omnipulse-nightly-reset --location "$REGION" --schedule "0 3 * * *" \
+    --time-zone "Asia/Kolkata" --uri "${RUN_URL}/api/v1/demo/reset" --http-method POST \
+    --headers "X-Reset-Token=${RESET_TOKEN}" --attempt-deadline 300s >/dev/null
 fi
 
 step "Frontend build"

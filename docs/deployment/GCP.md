@@ -75,6 +75,10 @@ cookie), `CORS_ORIGINS=https://<project>.web.app,https://<project>.firebaseapp.c
   A redeploy or instance restart resets to the clean demo dataset.
 * Check health: `curl https://<project>.web.app/health/ready` → `{"database":"ok","ai_provider":"gemini (llm)"}`.
 * Logs: `gcloud run services logs read omnipulse-api --region us-central1 --limit 100`.
+* **Nightly reset:** a Cloud Scheduler job (`omnipulse-nightly-reset`) rebuilds the demo data every
+  night at 03:00 India time through `POST /api/v1/demo/reset` (protected by the `omnipulse-reset-token`
+  secret), so expiring batches, the rain forecast and recent sales always match today's date.
+  Run it now: `gcloud scheduler jobs run omnipulse-nightly-reset --location us-central1`.
 * Reset to a clean demo at any time (new revision = fresh container = fresh seed):
   `gcloud run services update omnipulse-api --region us-central1 --update-env-vars DEMO_RESET=$(date +%s)`.
   Do this right before the evaluation window opens.

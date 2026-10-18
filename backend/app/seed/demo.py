@@ -167,13 +167,15 @@ def seed_demo(db: Session, *, days: int = 120, scale: float = 1.0, today: date |
         db.add(NotificationPreference(user_id=u.id))
 
     # ---------------------------------------------------------------- integrations & rules
-    weekend = [today + timedelta(days=i) for i in range(1, 8) if (today + timedelta(days=i)).weekday() >= 5][:2]
+    # Demo rain scenario on the next two days, so it always falls inside the 3-day window that weather
+    # opportunities look at (a "next weekend" date can be up to 6 days away and drop out of it).
+    rain_days = [today + timedelta(days=1), today + timedelta(days=2)]
     db.add_all([
         IntegrationConfig(merchant_id=fm.id, kind="weather", provider="simulated", mode="simulated",
                           settings={"forecast_overrides": {"AND01": {
-                              weekend[0].isoformat(): {"precipitation_mm": 18.0, "condition": "rain", "temp_max_c": 28.5, "temp_min_c": 24.0},
-                              weekend[1].isoformat(): {"precipitation_mm": 26.0, "condition": "rain", "temp_max_c": 27.5, "temp_min_c": 23.5},
-                          }}, "scenario": "Demo scenario: rain forecast this weekend at Andheri (simulated)."}),
+                              rain_days[0].isoformat(): {"precipitation_mm": 18.0, "condition": "rain", "temp_max_c": 28.5, "temp_min_c": 24.0},
+                              rain_days[1].isoformat(): {"precipitation_mm": 26.0, "condition": "rain", "temp_max_c": 27.5, "temp_min_c": 23.5},
+                          }}, "scenario": "Demo scenario: heavy rain forecast for the next two days at Andheri (simulated)."}),
         IntegrationConfig(merchant_id=fm.id, kind="pricing_publisher", provider="simulated_esl", mode="simulated",
                           settings={"fail_skus": []}),
         IntegrationConfig(merchant_id=fm.id, kind="pos", provider="simulated_pos", mode="simulated", settings={}),
