@@ -30,7 +30,16 @@
 - **Docs**: run `python -m app.docs_gen` after API or model changes; update `TECHNICAL_README.md`
   (structure, env vars, endpoints, entities, commands) whenever they change. Never document
   unimplemented features as complete.
-- **Secrets**: only via environment variables; never commit `.env`.
+- **Real-time**: publish list changes through `websocket.hub.publish` (it also mirrors to Firestore)
+  and merchant feed events through `integrations.firebase.firebase.merchant_feed`; never write
+  business data from the browser to Firestore, and update `firestore.rules` when adding collections.
+- **Connectors**: route every new sales channel through `channel_service.ingest_order` so stock,
+  idempotency, alerts and the live feed behave the same for all channels.
+- **Secrets**: only via environment variables (Secret Manager on Cloud Run); never commit `.env` or
+  API keys.
+- **Deploying**: `bash ./scripts/deploy-gcp.sh <project-id>` from Cloud Shell; see
+  `docs/deployment/GCP.md`. Run `npm run e2e -- e2e/judge.spec.ts` against a running stack before
+  changing the demo journeys.
 
 ## Commit messages
 Imperative mood, short subject (≤72 chars), body explaining *why* when not obvious.

@@ -20,12 +20,22 @@ OmniPulse AI is a retail platform with two applications on one backend and one d
 
 * **Shopper app** (`/shop`): catalog search, conversational assistant, photo search, smart
   shopping lists parsed from free text, aisle grouping, optimised in-store routes on an interactive
-  map, real-time shared lists (WebSocket), offers/coupons and consent-based proximity offers.
+  map, real-time shared lists (Firestore on Google Cloud, WebSocket locally), click & collect
+  ordering, offers/coupons and consent-based proximity offers.
 * **Merchant app** (`/merchant`): operational overview, catalog, inventory with batch ledger and
   CSV/XLSX import, expiry management with markdown recommendations, demand forecasting with
   stockout risk, pricing workflow (approve → publish) and promotions, weather opportunities,
   planogram editor, merchandising recommendations, cross-selling analytics, fraud review queue,
-  shopping insights, integrations, settings, audit log and background jobs.
+  shopping insights, integrations, settings, audit log and background jobs, plus a Gemini-written
+  **AI morning brief** and a **Channels & orders** page with a live omnichannel order feed.
+* **Plug and play** (`/onboarding`, `/merchant/setup`, `/merchant/channels`): store-owner self
+  sign-up, a 5-step setup wizard (store → generated floor plan → catalog import → sales-history
+  backfill → connectors), API keys for POS / e-commerce systems, a Shopify order webhook, a catalog
+  feed for online storefronts and a POS simulator.
+
+**Live deployment**: <https://aibuilder-5681b.web.app> (Cloud Run API, Firebase Hosting, Firestore +
+Firebase Auth, Gemini). One-click demo personas on the sign-in page; see §L.1 and
+[docs/deployment/GCP.md](docs/deployment/GCP.md).
 
 **User roles**
 
@@ -42,7 +52,9 @@ Permission codes are defined in `backend/app/core/permissions.py` and seeded int
 approval → publication (simulated shelf labels) → shopper sees the markdown; shopper list → product
 matching → route → collect; sales history → forecast → stockout risk → reorder suggestion;
 baskets → association rules → merchandising test → planogram draft → publish → outcome tracking;
-transactions → fraud rules + anomaly score → review queue → investigation outcome → evaluation.
+transactions → fraud rules + anomaly score → review queue → investigation outcome → evaluation;
+POS bill / Shopify order / click & collect → Orders API → FEFO stock consumption → low-stock alert →
+live feed (Firestore); new store → floor plan → catalog + history import → connectors → first analytics.
 
 **Implemented vs planned**: see [H](#h-feature-implementation-map) (status column) and
 [M](#m-known-limitations-and-roadmap).
@@ -83,6 +95,11 @@ transactions → fraud rules + anomaly score → review queue → investigation 
 | Playwright | End-to-end test of the demo journeys | `frontend/e2e` | Dev (optional) | — |
 | Docker / Compose, nginx | Containers, SPA serving + reverse proxy | `docker-compose.yml`, `*/Dockerfile`, `frontend/nginx.conf` | Optional | Yes |
 | GitHub Actions | CI (lint, tests on SQLite + PostgreSQL/pgvector, migrations, build) | `.github/workflows/ci.yml` | Optional | — |
+| Google Cloud Run | Hosts the backend container (built from `backend/Dockerfile` by Cloud Build) | `scripts/deploy-gcp.sh` | For the cloud deployment | — |
+| Firebase Hosting | Serves the SPA; rewrites `/api`, `/media`, `/health` to Cloud Run | `firebase.json` | For the cloud deployment | — |
+| Firestore + Firebase Auth (firebase-admin 7.7, firebase JS 12.19) | Real-time shared lists, presence and merchant live feed; custom tokens + security rules | `app/integrations/firebase`, `src/lib/firebase.ts`, `firestore.rules` | No (`FIREBASE_ENABLED`) | No (WebSocket / polling fallback) |
+| Gemini API | Intent, replies, list parsing, embeddings, vision captions, AI brief | `ai/providers/gemini_provider.py` | No (`AI_PROVIDER=gemini`) | No (deterministic fallback) |
+| Secret Manager, Cloud Scheduler | JWT secret + Gemini key; free keep-warm ping | `scripts/deploy-gcp.sh` | For the cloud deployment | — |
 
 Why these: FastAPI/Pydantic give typed contracts and OpenAPI for free; SQLAlchemy 2 typed models
 run on PostgreSQL and SQLite; scikit-learn covers forecasting and anomaly detection without heavy
@@ -97,12 +114,13 @@ the frontend stack is the brief's stack with hand-written shadcn-style component
 .
 ├── README.md · TECHNICAL_README.md · ARCHITECTURE.md · CONTRIBUTING.md
 ├── .env.example · .gitignore · docker-compose.yml · Makefile
+├── firebase.json · firestore.rules · firestore.indexes.json   Firebase Hosting + Firestore config
 ├── backend/                     FastAPI application (Python package `app`)
 ├── frontend/                    React SPA
 ├── data/sample/                 Generated sample import CSV and demo "customer photos" (by the seed)
 ├── docs/                        api/ (generated OpenAPI + endpoint table), architecture/ (generated ER diagram),
 │                                decisions/ (ADRs), development/, deployment/
-├── scripts/                     dev.ps1 (Windows) and dev.sh (macOS/Linux) task runners
+├── scripts/                     dev.ps1 / dev.sh task runners, deploy-gcp.sh (Cloud Run + Firebase)
 └── .github/workflows/ci.yml     CI pipeline
 ```
 
@@ -110,7 +128,7 @@ the frontend stack is the brief's stack with hand-written shadcn-style component
 
 | Module | Responsibility | Entry points / public interface | Depends on |
 |---|---|---|---|
-| `main.py` | App factory: CORS, request-ID + security-header middleware, exception handlers, routers, `/media` static files, `/health/live`, `/health/ready`, in-process worker lifecycle | `create_app()`, `app` | api, core, db |
+| `main.py` | App factory: CORS, request-ID + security-header middleware, exception handlers, routers, `/media` static files, `/health/live`, `/health/ready`, in-process worker lifecycle, optional migrate + seed on startup (`SEED_ON_STARTUP`) | `create_app()`, `app` | api, core, db |
 | `cli.py` | `migrate`, `seed`, `reset --yes`, `run-jobs`, `check` | `python -m app.cli …` | db, seed, tasks |
 | `docs_gen.py` | Regenerates `docs/api/*` and `docs/architecture/er-diagram.md` | `python -m app.docs_gen` | main, db |
 | `core/config.py` | All settings from env (see §I); production validation | `get_settings()` | — |
@@ -121,11 +139,14 @@ the frontend stack is the brief's stack with hand-written shadcn-style component
 | `core/logging.py` | Text/JSON logging with request IDs | `configure_logging`, `request_id_var` | — |
 | `db/base.py` | Declarative base, `UTCDateTime`, money type, naming convention, mixins | `Base`, `UUIDPk`, `Timestamps` | — |
 | `db/session.py` | Engine/session factory (SQLite pragmas, Postgres pool) | `get_db`, `SessionLocal`, `configure_engine` | config |
-| `db/models/*` | 62 tables in 9 modules: identity, store, catalog, inventory, shopping, sales, pricing, analytics, fraud, ops | ORM classes | base |
+| `db/models/*` | 63 tables in 9 modules: identity, store, catalog, inventory, shopping, sales, pricing, analytics, fraud, ops | ORM classes | base |
 | `api/dependencies.py` | Authentication (cookie or Bearer), `MerchantContext` (tenant, role, permissions, store scope), `require_permission`, `get_store_scoped`, pagination | FastAPI dependencies | db, security |
-| `api/v1/*.py` | 16 routers (one per domain) — HTTP only, no business rules | `api/router.py` | services, schemas |
+| `api/v1/*.py` | 19 routers (one per domain, incl. `onboarding`, `channels`, `realtime`) — HTTP only, no business rules | `api/router.py` | services, schemas |
 | `schemas/*` | Shared Pydantic schemas (auth, catalog, shopping, common) | models | — |
 | `services/*` | Business logic and transactions (one module per domain, listed in §H) | functions | db, ai, analytics, integrations |
+| `services/channel_service.py` | Connectors: API keys (SHA-256 hashed), idempotent order ingestion from any channel with FEFO stock consumption and low-stock alerts, Shopify payload mapping, catalog feed, sales-history CSV import, starter sales generator, POS-simulator baskets | `ingest_order`, `catalog_feed`, `import_sales_history` | inventory, catalog, firebase |
+| `services/onboarding_service.py` | Merchant sign-up (tenant, policies, category tree), store creation, layout preview/apply, starter catalog CSV, first analytics run, setup status | `register_merchant`, `create_store`, `apply_layout`, `status` | layout builder, inventory |
+| `services/brief_service.py` | AI morning brief: gathers verified facts, asks the provider for prioritised actions, caches 5 min | `operations_brief` | dashboard, providers |
 | `services/pricing_policy.py` | **Pure** pricing guardrails + markdown heuristic | `price_floor`, `compute_markdown`, `validate_price`, `promotion_price` | — |
 | `ai/providers/*` | `AIProvider` interface, `DemoProvider`, `LLMProvider` base, OpenAI and Gemini adapters, factory | `get_ai_provider()` | config |
 | `ai/lexicon.py` | Grocery lexicon: synonyms, occasions, units, tokenizer | functions | — |
@@ -139,16 +160,19 @@ the frontend stack is the brief's stack with hand-written shadcn-style component
 | `analytics/anomaly_detection/isolation.py` | IsolationForest percentile scores (pure) | `score` | sklearn |
 | `integrations/weather/providers.py` | Simulated + OpenWeatherMap adapters | `SimulatedWeatherProvider`, `OpenWeatherMapProvider` | httpx |
 | `integrations/pos/pricing_publisher.py` | Simulated ESL/POS price publisher | `SimulatedPricePublisher.publish` | — |
+| `integrations/firebase/__init__.py` | Firebase Admin bridge: mirrors list events / member sets and the merchant feed to Firestore on one ordered background thread; mints custom tokens; no-op when disabled | `firebase.list_event`, `merchant_feed`, `custom_token`, `available` | firebase-admin |
 | `integrations/notifications/adapters.py` | Log (simulated) / SMTP channel adapters | `get_adapter` | config |
 | `tasks/queue.py` | Durable job queue (enqueue, claim, run, retry, eager mode) | `enqueue`, `run_job`, `run_pending`, `job_handler` | db |
 | `tasks/handlers.py` | Job handlers (import commit, expiry, forecasts, affinity, analytics refresh, promotions, fraud scan, re-index) | registered by decorator | services |
 | `tasks/worker.py` | Worker loop + scheduler (`SCHEDULE`) | `python -m app.tasks.worker`, `Worker` | queue |
-| `websocket/hub.py` | Per-list subscriber registry, presence, Redis fan-out | `hub.publish`, `hub.join/leave` | config |
-| `seed/*` | Floor-plan generator, catalog data, synthetic packshots, demo dataset | `seed_demo()` | services |
+| `websocket/hub.py` | Per-list subscriber registry, presence, Redis fan-out; every published list message is also mirrored to Firestore | `hub.publish`, `hub.join/leave` | config, firebase |
+| `seed/*` | Parameterised floor-plan generator (`LayoutSpec`: aisles, sections, levels, walls, checkouts), catalog data, synthetic packshots, demo dataset | `seed_demo()`, `build_layout()` | services |
 
 `backend/tests/`: `conftest.py` (seeds a compact dataset once into a template SQLite DB; each test
 module gets its own copy; `TEST_DATABASE_URL` switches to PostgreSQL), `test_auth_and_tenancy.py`,
-`test_unit_algorithms.py`, `test_shopping_flows.py`, `test_merchant_flows.py`, `test_analytics_ops.py`.
+`test_unit_algorithms.py`, `test_shopping_flows.py`, `test_merchant_flows.py`, `test_analytics_ops.py`,
+`test_onboarding_channels.py` (demo sign-in, end-to-end store onboarding, connectors, Shopify webhook,
+FEFO simulator, click & collect, AI brief grounding, placement rule book, LLM timeout cooldown).
 
 ### Frontend (`frontend/src`)
 
@@ -158,16 +182,18 @@ module gets its own copy; `TEST_DATABASE_URL` switches to PostgreSQL), `test_aut
 | `routes/router.tsx` | Route tree, lazy pages, guards (`RequireAuth kind=customer|merchant permission=…`) |
 | `lib/api.ts` | Fetch client (cookies, error envelope → `ApiError`, `errorMessage`, `wsUrl`) |
 | `lib/list-socket.ts` | Reconnecting WebSocket client for shared lists (resync via `last_seq`, idempotent ops) |
+| `lib/firebase.ts`, `lib/list-firestore.ts` | Firestore session (runtime config from `/__/firebase/init.json`, custom-token sign-in) and the Firestore shared-list channel (same contract as `ListSocket`; writes go through REST) |
 | `lib/utils.ts`, `lib/chart.ts` | Formatting (₹, dates), class merging, chart styling |
 | `types/api.ts` | TypeScript mirrors of backend response schemas |
 | `hooks/use-stores.tsx`, `hooks/use-job.ts` | Shopper store selection / merchant store filter; job polling |
 | `components/ui/*` | Design-system components (Button, Card, Field/Input/Select, Badge/StatusBadge, Table, Dialog/side sheet, Tabs, Menu/Switch/Tooltip, feedback states, PageHeader/StatCard/Provenance/Pagination) |
 | `components/layout/*` | `CustomerLayout` (top nav + mobile tab bar + store picker), `MerchantLayout` (sidebar by permission + store filter), `NotificationBell` |
 | `components/maps/StoreMap.tsx` | SVG floor plan: fixtures, walkways, shelf sections, route, stops, highlights, keyboard-accessible sections, HTML5 drop targets, draggable movable fixtures |
-| `features/auth` | Login page, auth context, route guard |
+| `features/auth` | Login page (one-click demo personas), auth context (`demoLogin`, `adopt`), route guard |
+| `features/onboarding`, `features/channels` | Store-owner sign-up and setup wizard (incl. floor-plan builder); Channels & orders (connectors, API keys, POS simulator, live feed, developer quick start) |
 | `features/<feature>` | One folder per feature with its page(s), components and tests (see §H) |
 | `tests/` | Vitest setup and helpers (`mockApi`, `renderWithProviders`) |
-| `e2e/` | Playwright specs for the two demo journeys (`customer.spec.ts`, `merchant.spec.ts`) |
+| `e2e/` | Playwright specs: `customer.spec.ts`, `merchant.spec.ts` and `judge.spec.ts` (one-click owner, click & collect landing on the owner feed, new-store onboarding) |
 
 ---
 
@@ -188,12 +214,14 @@ flowchart TB
     AIL["ai: providers · assistant · embeddings · visual_search"]
     ANA["analytics: forecasting · basket_analysis · anomaly_detection (pure)"]
     INT["integrations: weather · pos/pricing_publisher · notifications"]
-    HUB["websocket hub"]
+    HUB["websocket hub + Firestore mirror"]
     Q["tasks: queue · handlers · worker/scheduler"]
   end
   DB[("PostgreSQL / SQLite")]
   REDIS[("Redis (optional)")]
   EXT[("OpenAI / Gemini / OpenWeatherMap / SMTP (optional)")]
+  FS[("Firestore + Firebase Auth (optional)")]
+  POS["POS / Shopify / storefront"]
   SPA -->|"/api/v1 JSON, httpOnly cookie"| MW --> API --> DEP
   SPA <-->|"/api/v1/ws/shopping-lists/{id}"| HUB
   API --> SVC --> DB
@@ -206,12 +234,20 @@ flowchart TB
   Q --> DB
   AIL -.-> EXT
   INT -.-> EXT
+  HUB -.->|"Admin SDK writes"| FS
+  FS -.->|"onSnapshot (custom token)"| SPA
+  POS -->|"Orders API, X-Api-Key"| API
 ```
+
+On Google Cloud the SPA is served by Firebase Hosting, which rewrites `/api/**`, `/media/**` and
+`/health/**` to the Cloud Run service, so the browser talks to one origin.
 
 ### D.2 Frontend ↔ backend communication
 * REST under `/api/v1`; the SPA calls relative URLs and Vite (dev) or nginx (container) proxies
   `/api`, `/media` and `/health` to the API, so the session cookie is same-origin.
-* Session: `POST /auth/login` sets `op_session` (httpOnly, SameSite=Lax, Secure when `COOKIE_SECURE`).
+* Session: `POST /auth/login` (or `POST /auth/demo-login`) sets the session cookie (`op_session`
+  by default; `__session` on Firebase Hosting, the only cookie Hosting forwards), httpOnly,
+  SameSite=Lax, Secure when `COOKIE_SECURE`.
   The JWT (`sub`, `sid`, `exp`) is validated **and** its `auth_sessions` row must be unrevoked.
   API clients may send `Authorization: Bearer <access_token>` instead.
 * Errors: every non-2xx response is `{"error": {"code", "message", "details", "request_id"}}`.
@@ -239,6 +275,16 @@ Scheduled jobs (`tasks/worker.py: SCHEDULE`): `expiry_reevaluation` (hourly), `p
 `events` since `last_seq` (≤200) or a full `snapshot`. Client ops are applied through the same
 service function as REST, acknowledged to the sender and broadcast to members. See §F.6.
 
+**Firestore transport (cloud deployment).** Firebase Hosting cannot proxy WebSockets, so when
+`FIREBASE_ENABLED=true` the hub also mirrors every list message to Firestore
+(`shoppingLists/{id}` with `members`, `shoppingLists/{id}/events/{seq}`), and order / low-stock events
+go to `merchants/{merchantId}/feed`. The browser asks `GET /realtime/config`, signs in to Firebase
+with `POST /realtime/token` (custom token, uid = user id, `merchant_id` claim for staff), calls
+`POST /realtime/lists/{id}/subscribe` and then listens with `onSnapshot`; operations are sent over
+REST with `client_event_id`. `firestore.rules` only lets list members read their list and staff read
+their own merchant's feed; browsers never write business data (only their own presence document).
+Without Firebase the client falls back to the WebSocket (lists) or 5-second polling (feed).
+
 ### D.7 External integration boundaries
 | Boundary | Interface | Implementations | Default |
 |---|---|---|---|
@@ -246,7 +292,10 @@ service function as REST, acknowledged to the sender and broadcast to members. S
 | Weather | `forecast()/day()` | `SimulatedWeatherProvider`, `OpenWeatherMapProvider` | Simulated |
 | Price publication (ESL/POS) | `PricePublisher.publish()` | `SimulatedPricePublisher` | Simulated |
 | Notifications | `ChannelAdapter.send()` | `LogAdapter` (email/sms/push), `SmtpEmailAdapter` | Log (simulated) |
-| POS / self-checkout / e-commerce / payments | `POST /merchant/fraud/transactions` (ingestion harness), seeded `is_simulated` transactions | simulated only | Simulated |
+| POS / e-commerce orders | `POST /ingest/orders`, `POST /ingest/shopify/orders` (API key), `channel_service.ingest_order` | Generic JSON, Shopify `orders/create`, POS simulator, click & collect | Live API (no vendor-specific adapters yet) |
+| Online storefront catalog | `GET /ingest/catalog` (API key) | Selling price incl. markdowns/promotions, stock, shelf | Live API |
+| Real-time delivery | `FirebaseBridge` | Firestore (Admin SDK) | Off (WebSocket / polling) |
+| Payments / self-checkout scale | order payload `payment_method`; `POST /merchant/fraud/transactions` harness | simulated only | Simulated |
 | Geolocation | `POST /me/location` (foreground reports, consent-gated) | browser geolocation or demo simulator | Simulator |
 
 ### D.8 Authentication & authorization boundaries
@@ -358,7 +407,7 @@ flowchart LR
 
 ## E. Database
 
-### E.1 Entities (62 tables)
+### E.1 Entities (63 tables)
 
 | Domain | Tables | Notes |
 |---|---|---|
@@ -371,7 +420,7 @@ flowchart LR
 | Pricing | `pricing_rules`, `price_changes`, `price_change_events`, `promotions`, `promotion_products`, `coupons`, `coupon_redemptions` | `price_change_events` is the full workflow history. |
 | Analytics | `forecast_runs`, `forecast_results`, `forecast_product_summaries`, `affinity_runs`, `affinity_rules`, `category_affinities`, `merchandising_recommendations` | Runs record parameters, metrics and status. |
 | Fraud | `fraud_rules`, `fraud_alerts`, `fraud_investigations`, `investigation_notes`, `fraud_labels` | `fraud_labels` (synthetic ground truth) is used only for evaluation, never as a model feature. |
-| Operations | `notifications`, `notification_preferences` (incl. consent), `geofence_events`, `audit_events`, `integration_configs`, `job_runs` | Notifications de-duplicated by unique `idempotency_key`. |
+| Operations | `notifications`, `notification_preferences` (incl. consent), `geofence_events`, `audit_events`, `integration_configs`, `job_runs`, `api_keys` | Notifications de-duplicated by unique `idempotency_key`. `api_keys` store only a SHA-256 hash + prefix, optional store binding, usage and revocation. |
 
 The complete generated ER diagram (every column, PK, FK) is in
 [docs/architecture/er-diagram.md](docs/architecture/er-diagram.md). Core relationships:
@@ -431,6 +480,7 @@ verify this with a second demo merchant (UrbanBasket).
 * `alembic/versions/0001_initial_schema.py` — full schema (autogenerated from the models, reviewed).
 * `alembic/versions/0002_optional_pgvector.py` — adds `product_embeddings.embedding vector(256)` + HNSW
   index when the `vector` extension exists; no-op otherwise.
+* `alembic/versions/0003_connector_api_keys.py` — `api_keys` table for connectors.
 * `test_alembic_migrations_match_models` upgrades a fresh DB to head, asserts **no diff** between
   migrations and models, then downgrades to base.
 
@@ -482,7 +532,7 @@ psql "postgresql://omnipulse:omnipulse@localhost:5432/omnipulse" -c "select code
 * **Base URL**: `/api/v1` (development: `http://localhost:8000/api/v1`, or through the Vite proxy at
   `http://localhost:5173/api/v1`).
 * **Interactive docs**: `http://localhost:8000/docs` (Swagger UI), `/redoc`, `/openapi.json`.
-  A generated endpoint table (131 operations) is in [docs/api/endpoints.md](docs/api/endpoints.md);
+  A generated endpoint table (156 operations) is in [docs/api/endpoints.md](docs/api/endpoints.md);
   regenerate with `python -m app.docs_gen`.
 * **Health**: `GET /health/live`, `GET /health/ready` (database, Redis, AI provider).
 
@@ -496,7 +546,10 @@ POST /api/v1/auth/login
  "access_token": "<jwt>", "token_type": "bearer", "expires_at": "..."}
 ```
 `POST /auth/logout` revokes the server-side session. `GET/PATCH /auth/me`. `POST /auth/register`
-creates shopper accounts. Merchant users may select a tenant with `X-Merchant-Id`.
+creates shopper accounts; `POST /onboarding/merchant` creates a store-owner account and tenant.
+`GET /auth/demo-personas` and `POST /auth/demo-login {"persona": "customer"|"owner"|…}` give
+password-less demo sign-in when `DEMO_LOGIN_ENABLED`. Merchant users may select a tenant with
+`X-Merchant-Id`.
 
 ### F.2 Endpoint groups
 
@@ -517,7 +570,11 @@ creates shopper accounts. Merchant users may select a tenant with `X-Merchant-Id
 | Layouts & merchandising | `GET /merchant/stores/{id}/layouts`, `POST …/layouts/draft`, `GET/DELETE /merchant/layouts/{id}`, `POST …/placements`, `DELETE …/placements/{pid}`, `PATCH …/fixtures/{fid}`, `POST …/publish`, `GET …/diff`; `GET /merchant/merchandising/recommendations`, `POST …/generate`, `GET …/{id}`, `POST …/{id}/review`, `POST …/{id}/apply-to-draft` |
 | Cross-selling | `POST/GET /merchant/affinity/runs`, `GET …/runs/{id}`, `…/heatmap`, `…/graph` |
 | Fraud | `GET /merchant/fraud/alerts`, `GET …/alerts/{id}`, `POST …/{id}/{investigation|notes|escalate|close}`, `POST /merchant/fraud/scan`, `GET /merchant/fraud/evaluation`, `GET/PATCH /merchant/fraud/rules`, `POST /merchant/fraud/transactions` |
-| Admin | `GET /merchant/stores`, `/merchant/overview`, `/merchant/insights`, `/merchant/audit-events`, `GET/POST /merchant/jobs`, `GET /merchant/jobs/{id}`, `GET/PUT /merchant/integrations[/{kind}]` |
+| Admin | `GET /merchant/stores`, `/merchant/overview`, `/merchant/insights`, `/merchant/ai-brief?refresh=`, `/merchant/audit-events`, `GET/POST /merchant/jobs`, `GET /merchant/jobs/{id}`, `GET/PUT /merchant/integrations[/{kind}]`, `GET /merchant/layouts/{id}/rules` |
+| Onboarding | `POST /onboarding/merchant`, `GET /merchant/onboarding/status`, `POST /merchant/stores`, `POST /merchant/stores/{id}/layout-preview`, `POST …/layout-generate`, `GET …/starter-catalog.csv`, `GET …/starter-sales.csv`, `POST /merchant/onboarding/finish` |
+| Channels (merchant) | `GET /merchant/channels`, `POST/DELETE /merchant/channels/keys[/{id}]`, `GET /merchant/channels/orders`, `POST /merchant/channels/simulate`, `POST /merchant/channels/sales-history` (CSV) |
+| Ingestion (API key) | `POST /ingest/orders`, `POST /ingest/shopify/orders?store_code=`, `GET /ingest/catalog?store_code=` — header `X-Api-Key` |
+| Click & collect, realtime | `POST /shopping-lists/{id}/order`; `GET /realtime/config`, `POST /realtime/token`, `POST /realtime/lists/{id}/subscribe` |
 
 ### F.3 Examples
 ```http
@@ -571,18 +628,25 @@ Every analytics output is labelled in the UI by method: **Business rule**, **Heu
 | Feature | Kind | Input | Processing / algorithm | Output | Fallback | Limitations | Configuration | Evaluation |
 |---|---|---|---|---|---|---|---|---|
 | Intent extraction | LLM (OpenAI/Gemini JSON schema) **or** deterministic rules | message, optional context product | `extract_intent` → `ShoppingIntent` (validated) | intent, queries, budget, people, occasion, reference | Demo rules on missing key/any failure | Rules cover common grocery phrasings only | `AI_PROVIDER`, model vars | `test_shopping_flows.py` assistant tests |
-| Assistant answers | Tool use by backend + LLM/template phrasing | intent + verified facts | catalog search, stock, prices, locations, curated relations, mined rules; budget basket greedy fill (essentials first, cheapest viable match) | message + product cards + basket + directions | Template from same facts; replies with unverified ₹ amounts or unknown product IDs are replaced | Template phrasing is basic in demo mode | — | `test_grounding_rejects_unverified_amounts` |
+| Assistant answers | Tool use by backend + LLM/template phrasing | intent + verified facts | catalog search, stock, prices, locations, curated relations, mined rules; budget basket greedy fill (essentials first, cheapest viable match) | message + product cards + basket + directions | Template from same facts; replies with unverified ₹ amounts or unknown product IDs are replaced (amounts the shopper stated and greeting examples are allowed) | Template phrasing is basic in demo mode | — | `test_grounding_rejects_unverified_amounts`, `test_grounding_allows_shopper_amounts_and_greeting_examples` |
+| AI morning brief | LLM over verified facts **or** template | KPIs + numbered facts (expiry alerts, low stock, stockout risk, pending prices, fraud, merchandising, channel mix) | provider writes headline + ≤5 actions citing fact ids; rejected if it cites unknown facts or writes numbers not in the facts | prioritised actions with links and evidence | Template ordered by priority | Facts are a fixed set of queries | `AI_PROVIDER` | `test_ai_brief_is_grounded`, `test_llm_brief_rejects_ungrounded_numbers` |
 | Shopping-list parsing | Deterministic grammar (default) or LLM | free text | split on commas/newlines/"and"/sentences; quantity & unit grammar (dozen → 12 pc) | items | Demo grammar | Complex sentences may need edits in the review step | — | parse tests |
 | Product matching / search | Lexical + **semantic retrieval** | query | field-weighted token/prefix matching (name 3, brand/category/tags 2, description 0.8) + synonym expansion, combined 70/30 with embedding cosine; popularity tie-break; threshold 0.30 | ranked products, candidates, confidence | Lexical-only if embeddings unavailable | Demo embeddings are hashed lexical features (spelling/synonyms, not meaning) | `EMBEDDING_DIMENSIONS` | search tests |
 | Embeddings | Demo hashed n-grams or provider embeddings | product text | stored per model with content hash; re-embed when stale | 256-d vectors | — | NumPy scoring per tenant (see M) | provider vars | — |
-| Visual search | **Image matching** (deterministic descriptor) + optional vision caption | uploaded JPEG/PNG/WebP ≤ 5 MB | HSV foreground histogram (108 bins) + 4×4 colour layout, cosine ≥ 0.55; with a vision provider: caption → catalog search, 50/50 blend | matches with similarity | — | Not object recognition; matches colour/packaging similarity to catalog images | vision-capable provider | `test_visual_search_matches_query_photo` |
+| Visual search | **Image matching** (deterministic descriptor) + optional vision caption | uploaded JPEG/PNG/WebP ≤ 5 MB | HSV foreground histogram (108 bins) + 4×4 colour layout, cosine ≥ 0.55; with a vision provider: caption → catalog search, 50/50 blend in which products the caption does not match score 0 on text | matches with similarity | — | Not object recognition; matches colour/packaging similarity to catalog images | vision-capable provider | `test_visual_search_matches_query_photo` |
 | Routing | Deterministic graph algorithms | list items, start point, accessible flag | Dijkstra distance matrix; Held-Karp exact open-path TSP (≤ 11 stop nodes) else nearest-neighbour + 2-opt; turn detection from heading changes | ordered stops, path, steps, distance saved vs list order | — | No indoor positioning; start point is manual | — | brute-force equivalence tests |
 | Markdown recommendations | **Heuristic** with explicit assumptions | batch qty, hours to sell-by, 14-day velocity (FEFO-allocated across batches), price, cost, floor, policy | expected = v·days; needed discount = (qty/expected − 1)/elasticity, rounded up to 5 %, capped by time tier & max markdown & floor; leftover → clearance | price change + clearance task | — | Elasticity is an assumption (default 2.0, configurable), not learned | `pricing_rules` (`expiry_markdown`), `merchant_settings` | unit tests in `test_unit_algorithms.py` |
 | Demand forecasting | **Statistical baseline + ML** | daily units, weather, calendar | seasonal naive (mean of last 4 same weekdays) vs Ridge(weekday, trend, precip, rain flag, temp, holiday); 14-day backtest picks lower MAE; ±1.28σ interval | per-day forecast + interval, stockout risk, reorder qty, explanation | seasonal naive for sparse series | Weather associations are not causal; backtests use observed weather | horizon/history per run | MAE/RMSE/WAPE per product and per model in `forecast_runs.metrics` |
 | Weather opportunities | Deterministic rule + historical evidence | forecast, rain-day vs dry-day sales, stock, floors | qualifies if rain ≥ 5 mm forecast, ≥5 rainy & dry days observed with ratio ≥ 1.3, stock ≥ 1.2× expected, eligible, above floor | promotion draft suggestion | Simulated weather | Association only | `pricing_rules` (`weather_promotion`) | — |
 | Product affinity | **Association rules** | sale baskets in window | pair-wise Apriori: support, confidence, lift with min support / confidence / pair count and ≥ 200 baskets; category-level lift matrix | rules, heatmap, network graph | run fails with "insufficient data" | Pairs only (no 3-item sets); correlation ≠ causation | run parameters | exact-value unit test |
 | Merchandising | Deterministic, evidence-based | rules, placements, walking distance, velocity, margin, weights | adjacency tests (lift ≥ 1.5, conf ≥ 0.2, ≥ 20 pairs, ≥ 12 m apart; cheaper complement placed near anchor); eye-level tests; safety relocations | recommendation + evidence quality + A/B plan (sample size rule of thumb) | — | Outcome tracking is observational before/after | constants in `merchandising_service.py` | — |
+| Merchandising guardrails | **Business rules** | product, shelf, fixture | `layout_service.PLACEMENT_RULES`: chilled goods in chillers, ≥5 kg not above 100 cm, no kids' treats (children's products, confectionery, crisps) at checkouts, warning ≤90 cm (kids' eye level), capacity, chiller space, walkway clearance; AI generators never propose violating placements | block / warn + rule book with live compliance | — | Tag-based detection of confectionery | constants in `layout_service.py` | `test_placement_rule_book_and_kid_height_warning` |
 | Fraud | **Business rules** + **anomaly detection** | transactions, returns, receipts, security events, adjustments | 8 weighted, configurable rules (severity-scaled); IsolationForest percentile over behavioural features; risk = 0.75·rules + 0.25·anomaly | review-queue alerts with explanations | — | Synthetic labels; no automatic actions | `fraud_rules`, `fraud_alert_threshold` | precision/recall vs labels + reviewer outcomes (`/merchant/fraud/evaluation`) |
+
+LLM calls are bounded: each request times out after `AI_REQUEST_TIMEOUT_SECONDS` (12 s on Cloud Run),
+and after a timeout or a 402/429/5xx error the provider is skipped for 60 s (deterministic fallback
+answers immediately) so users never wait on a failing model. Gemini 3 models are asked for a low
+thinking level; models that reject that setting are retried without it.
 
 ---
 
@@ -611,6 +675,12 @@ Every analytics output is labelled in the UI by method: **Business rule**, **Heu
 | Fraud shield | `features/fraud-monitoring` | `fraud_service.py`, `analytics/anomaly_detection` | fraud_rules/alerts/investigations/notes/labels | `/merchant/fraud/*` | `fraud_scan` | Simulated POS/self-checkout | fraud tests | Implemented (synthetic data) |
 | Shopping insights | `features/merchant-dashboard/InsightsPage` | `dashboard_service.customer_insights` | sales, lists | `/merchant/insights` | — | — | dashboard test | Implemented |
 | Integrations, settings, audit, jobs | `features/merchant-dashboard` | `analytics.py`, `audit_service.py`, `tasks/*` | integration_configs, audit_events, job_runs | `/merchant/integrations`, `/merchant/audit-events`, `/merchant/jobs` | all | — | job/scheduler tests | Implemented |
+| One-click demo sign-in | `features/auth/LoginPage` | `auth.py`, `auth_service.demo_login` | auth_sessions | `/auth/demo-personas`, `/auth/demo-login` | — | — | `test_one_click_demo_login`, `auth.test.tsx` | Implemented (disable with `DEMO_LOGIN_ENABLED=false`) |
+| Store-owner onboarding | `features/onboarding` | `onboarding.py`, `onboarding_service.py`, `seed/layout_builder.py` | merchants, stores, layouts, products, sales | `/onboarding/merchant`, `/merchant/stores…`, `/merchant/onboarding/*` | import commit, analytics jobs | — | `test_new_store_owner_end_to_end`, `onboarding.test.tsx`, `judge.spec.ts` | Implemented |
+| Channels & connectors | `features/channels` | `channels.py`, `channel_service.py` | api_keys, sales_transactions, batches, stock_adjustments | `/merchant/channels/*`, `/ingest/*` | — | Shopify webhook format; Firestore feed | `test_shopify_webhook_and_stock_rules`, `test_pos_simulator_consumes_fefo`, `channels.test.tsx` | Implemented (generic + Shopify; vendor POS adapters on roadmap) |
+| Click & collect | `shopping-lists/components/PickupOrderCard` | `shopping_lists.py` (`/order`), `channel_service` | sales_transactions, list events | `/shopping-lists/{id}/order` | — | Firestore feed | `test_click_and_collect_from_shared_list` | Implemented (payment simulated) |
+| AI morning brief | `merchant-dashboard/components/AiBriefCard` | `brief_service.py`, `llm_base.operations_brief` | (reads operational tables) | `/merchant/ai-brief` | — | Gemini | brief tests | Implemented |
+| Real-time over Firestore | `lib/firebase.ts`, `lib/list-firestore.ts`, `channels/LiveOrdersFeed` | `integrations/firebase`, `realtime.py` | (mirrors list events / feed) | `/realtime/*` | — | Firestore, Firebase Auth | `test_realtime_negotiation_without_firebase` | Implemented (cloud deployment) |
 | Notifications | `features/notifications`, `NotificationBell` | `notification_service.py`, `notifications.py` | notifications, preferences | `/notifications/*` | various | Log/SMTP adapters | geofence test | Implemented (in-app; email via SMTP optional) |
 
 ---
@@ -631,7 +701,7 @@ the default". Secrets are marked ●.
 | `JWT_SECRET` | Signs session JWTs | 32+ random chars | **Yes in production** | dev-only value | ● |
 | `JWT_ALGORITHM` | JWT algorithm | `HS256` | No | `HS256` | |
 | `ACCESS_TOKEN_MINUTES` | Session lifetime | `720` | No | `720` | |
-| `SESSION_COOKIE_NAME` | Cookie name | `op_session` | No | `op_session` | |
+| `SESSION_COOKIE_NAME` | Cookie name (`__session` behind Firebase Hosting) | `__session` | No | `op_session` | |
 | `COOKIE_SECURE` | Secure cookie flag (HTTPS) | `true` | **Yes (true) in production** | `false` | |
 | `COOKIE_SAMESITE` | `lax` / `strict` / `none` | `lax` | No | `lax` | |
 | `CORS_ORIGINS` | Allowed origins (comma-separated) | `https://app.example.com` | No | `http://localhost:5173,http://127.0.0.1:5173` | |
@@ -645,7 +715,7 @@ the default". Secrets are marked ●.
 | `GEMINI_API_KEY` | Gemini key (sent as `x-goog-api-key` header) | — | With `gemini` | none | ● |
 | `GEMINI_BASE_URL`, `GEMINI_CHAT_MODEL`, `GEMINI_EMBEDDING_MODEL` | Gemini endpoints/models | `gemini-3.5-flash-lite` (the GCP deploy script picks the newest Flash model the key can use), `gemini-embedding-001` | No | as shown | |
 | `EMBEDDING_DIMENSIONS` | Vector size for all providers | `256` | No | `256` | |
-| `AI_REQUEST_TIMEOUT_SECONDS` | Provider HTTP timeout | `30` | No | `30` | |
+| `AI_REQUEST_TIMEOUT_SECONDS` | Provider HTTP timeout (per call) | `12` on Cloud Run | No | `30` | |
 | `WEATHER_PROVIDER` | `simulated` / `openweathermap` | `openweathermap` | No | `simulated` | |
 | `OPENWEATHER_API_KEY` | OpenWeatherMap One Call 3.0 key | — | With `openweathermap` | none | ● |
 | `PRICING_PUBLISHER` | Price publication adapter | `simulated` | No | `simulated` | |
@@ -660,6 +730,11 @@ the default". Secrets are marked ●.
 | `WORKER_POLL_SECONDS`, `ENABLE_SCHEDULER` | Worker polling / periodic jobs | `2`, `true` | No | `2`, `true` | |
 | `JOBS_EAGER` | Run jobs synchronously at enqueue (tests) | `false` | No | `false` | |
 | `TEST_DATABASE_URL` | Run the backend test-suite on PostgreSQL | postgres URL | No | SQLite | ● |
+| `FIREBASE_ENABLED` | Mirror lists/feed to Firestore and mint Firebase custom tokens (needs Application Default Credentials) | `true` | No | `false` | |
+| `FIREBASE_PROJECT_ID` | Firebase / Google Cloud project | `aibuilder-5681b` | With Firebase | from credentials | |
+| `DEMO_LOGIN_ENABLED` | One-click demo personas on the sign-in page | `false` for real tenants | No | `true` | |
+| `SEED_ON_STARTUP` | Migrate and seed the demo dataset on boot when the DB is empty (Cloud Run + SQLite) | `true` | No | `false` | |
+| `VITE_FIREBASE_CONFIG` | Frontend: Firebase web config JSON for local testing (Hosting serves it automatically) | `{"apiKey":…,"projectId":…}` | No | none | |
 | `VITE_API_BASE_URL` | Frontend: API origin when not proxied | `https://api.example.com` | No | same origin | |
 | `VITE_BACKEND_URL` | Vite dev proxy target | `http://127.0.0.1:8000` | No | as shown | |
 
@@ -754,13 +829,13 @@ association metrics, merchandising/planogram constraints, fraud detection/invest
 geofence consent and cooldowns, dashboard aggregates vs DB, job queue/scheduler, health checks and
 migration/model parity.
 
-Last verified run (this repository state): backend **74 passed** (SQLite) and the full suite also
-passing on PostgreSQL 17; ruff clean. Frontend **75 passed** (19 files), ESLint and `tsc -b` clean,
-production build OK. Playwright: **2/2 journeys passed** (shopper: smart list → route → collect →
-invite → live sync → photo search → assistant; merchant: import with errors → commit → approve &
-publish the 40-carton milk markdown → forecast/affinity/layout/merchandising pages → close a fraud
-case → audit log). Postman smoke collection (`docs/api/postman/`): 15 requests, 21 assertions, 0
-failures. OpenAI/Gemini/OpenWeatherMap/SMTP adapters were **not** exercised (no credentials).
+Last verified run (this repository state): backend **88 passed** (SQLite; `test_scheduler_is_idempotent`
+can fail on Windows because of coarse clock resolution), ruff clean. Frontend **90 passed** (22 files),
+ESLint and `tsc -b` clean, production build OK. Playwright `judge.spec.ts`: **3/3 passed** (one-click
+owner → AI brief → POS simulator; click & collect → order on the owner's feed; new store owner →
+setup wizard → live). The Gemini adapter, Firestore mirroring and Firebase custom tokens were verified
+on the live Cloud Run deployment (chat 1.5–2.1 s, all 8 sample photos matched first in photo search);
+OpenAI, OpenWeatherMap and SMTP adapters were **not** exercised (no credentials).
 
 ### K.2 Common problems
 | Symptom | Cause / fix |
@@ -774,7 +849,9 @@ failures. OpenAI/Gemini/OpenWeatherMap/SMTP adapters were **not** exercised (no 
 | WebSocket closes with 4404 | User is not a member of the list. |
 | Real-time updates not crossing API replicas | Set `REDIS_URL` on every API instance. |
 | `AI_PROVIDER=openai but no API key` warning | Set `OPENAI_API_KEY`, or keep `demo`. Check `GET /health/ready` (`ai_provider`). |
-| Assistant response `provider.fell_back=true` | The LLM call failed or returned invalid JSON; the deterministic fallback answered. See API logs. |
+| Assistant response `provider.fell_back=true` | The LLM call failed or returned invalid JSON; the deterministic fallback answered. See API logs (`gcloud run services logs read omnipulse-api`). A `402 prepayment credits are depleted` means the Gemini key's project has no credit: use a key from a project without billing (free tier). |
+| Live feed shows "Auto-refresh" instead of "Live · Firestore" | Firebase Authentication not initialised (Firebase console → Authentication → Get started) or `FIREBASE_ENABLED` is off; polling keeps working. |
+| 502 from Firebase Hosting on `/api` | The Cloud Run request exceeded Hosting's 60 s limit or the instance was restarting (seeding takes ~30 s). |
 | `ZoneInfoNotFoundError` on Windows | `tzdata` must be installed (it is a dependency). |
 | 429 on login during scripted tests | Raise `LOGIN_RATE_LIMIT_PER_MINUTE`. |
 | Images missing in the catalog | Seed writes to `MEDIA_DIR`; make sure the API serves the same directory. |
@@ -810,27 +887,41 @@ failures. OpenAI/Gemini/OpenWeatherMap/SMTP adapters were **not** exercised (no 
 
 See also [docs/deployment/README.md](docs/deployment/README.md).
 
+### L.1 Google Cloud deployment (live demo)
+`GEMINI_API_KEY='…' bash ./scripts/deploy-gcp.sh <project-id> [region]` (best run from Cloud Shell)
+enables the APIs, adds Firebase and a web app, creates Firestore, a service account (Firestore user +
+token creator on itself), Secret Manager secrets (JWT secret, Gemini key), picks the newest Gemini
+Flash-Lite model the key can use, deploys `backend/` to **Cloud Run** (max one instance, SQLite demo
+database seeded on start, scale to zero plus a free Cloud Scheduler keep-warm ping, or `ALWAYS_ON=1`),
+builds the SPA and deploys **Firebase Hosting** and `firestore.rules`. One manual step: Firebase
+console → Authentication → Get started. Reset to clean demo data with
+`gcloud run services update omnipulse-api --region us-central1 --update-env-vars DEMO_RESET=$(date +%s)`.
+Details, costs and troubleshooting: [docs/deployment/GCP.md](docs/deployment/GCP.md).
+
 ---
 
 ## M. Known limitations and roadmap
 
 **Simulated (clearly labelled in the UI and data)**
 * Weather (deterministic simulator; demo weekend-rain scenario via integration settings).
-* Price publication to shelf labels/POS (`SimulatedPricePublisher`), POS/self-checkout/e-commerce
-  transactions (seeded `is_simulated` + ingestion harness), coupon redemption at POS, SMS/push
+* Price publication to shelf labels/POS (`SimulatedPricePublisher`), payments (order payload only),
+  the POS simulator and seeded `is_simulated` transactions, coupon redemption at POS, SMS/push
   (logged only), email (logged unless SMTP configured), location (demo simulator or foreground
   browser geolocation).
 * All demo data (sales, fraud labels, weather history) is synthetic; correlations exist by
   construction.
 
 **Requires external credentials or hardware**
-* OpenAI/Gemini (LLM intent/replies, embeddings, image captions) — adapters written but not tested
-  in CI without keys. OpenWeatherMap. SMTP. Real ESL/POS/payment/receipt-scanner/self-checkout
-  integrations. Mobile background geofencing + push (native app). Indoor positioning (BLE/UWB).
+* OpenAI/Gemini — not tested in CI without keys (Gemini verified on the live deployment).
+  OpenWeatherMap. SMTP. Vendor-specific POS adapters (Tally, Gofrugal, Petpooja) beyond the generic
+  Orders API and Shopify webhook; real ESL/payment/receipt-scanner/self-checkout hardware. Mobile background geofencing + push (native app). Indoor positioning (BLE/UWB).
 
 **Incomplete / simplified**
 * Planogram editor: product placement and movable fixtures (endcaps, clearance bin) only; aisle
-  geometry and the walkable graph are not editable.
+  geometry comes from the floor-plan generator (aisles, sections, levels, walls, checkouts) rather
+  than free drawing.
+* The cloud demo uses an in-container SQLite database on one Cloud Run instance: data resets when the
+  instance restarts. Production would use Cloud SQL (PostgreSQL) and more instances.
 * Association rules are pair-wise only. Markdown elasticity is a configurable assumption.
 * Vector search scores in NumPy per tenant; the pgvector column/index exist (migration 0002) but
   SQL kNN is not implemented.
@@ -839,13 +930,15 @@ See also [docs/deployment/README.md](docs/deployment/README.md).
 * Notifications are in-app; no per-type notification settings UI beyond channels and consent.
 * Merchandising recommendations reference shelf locations of the layout version active when they
   were generated; after a new layout is published they still match by shelf code but not by id.
-* When an owner removes a member from a shared list, other connected members see it only on their
-  next refetch (the `member_removed` hub message is not yet applied by `ListSocket`).
+* When an owner removes a member from a shared list, other connected WebSocket members see it only
+  on their next refetch (`member_removed` is not yet applied by `ListSocket`); with Firestore the
+  member set is updated and the removed member loses read access immediately.
 * Single currency (INR) and timezone per store.
 
 **Roadmap**: pgvector kNN, causal uplift via randomised store-level experiments, learned price
 elasticity, 3-item association sets, multi-lingual list parsing, native app for geofencing/push,
-real ESL/POS adapters, OpenTelemetry metrics/tracing, admin UI for users/roles.
+vendor POS adapters, UPI/Razorpay payments, real ESL integration, OpenTelemetry metrics/tracing,
+admin UI for users/roles.
 
 ---
 

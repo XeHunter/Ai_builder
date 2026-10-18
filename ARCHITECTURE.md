@@ -26,9 +26,16 @@ flowchart LR
   W --> PG
   WK[Standalone worker<br/>python -m app.tasks.worker] --> PG
   WS -. optional fan-out .-> RD[(Redis pub/sub)]
-  AI -. optional .-> LLM[(OpenAI / Gemini)]
+  WS -. mirror events .-> FS[(Firestore)]
+  FS -. onSnapshot, Firebase Auth token .-> SPA
+  CH[POS / Shopify / storefront] -- Orders API, X-Api-Key --> R
+  AI -. optional .-> LLM[(Gemini / OpenAI)]
   INT -. optional .-> EXT[(OpenWeatherMap / SMTP)]
 ```
+
+On Google Cloud (the live demo) the SPA is served by **Firebase Hosting**, which rewrites `/api` to
+the API container on **Cloud Run**; **Firestore** with **Firebase Auth** custom tokens carries
+real-time updates; **Gemini** is the AI provider (see §10).
 
 * **One deployable backend** with strict internal module boundaries: `api` (HTTP/WebSocket only),
   `services` (business rules & transactions), `ai`, `analytics` (pure algorithms, no DB),
@@ -43,7 +50,7 @@ flowchart LR
 * **PostgreSQL is the source of truth** for everything, including collaborative list state and the
   list event log. Redis is optional and used only for ephemeral coordination (WebSocket fan-out
   between API instances, shared rate-limit counters).
-* **Normalised relational schema** (62 tables). The CSV import format is mapped onto products,
+* **Normalised relational schema** (63 tables). The CSV import format is mapped onto products,
   inventory items, batches, placements and categories — it is *not* the storage format.
 * **All stock lives in batches.** `inventory_items.quantity_on_hand` is always recomputed as the sum
   of its batches, and every change writes a `stock_adjustments` ledger row. This makes expiry,
@@ -88,6 +95,12 @@ after reconnecting with `?last_seq=N`; operations carry a `client_event_id` so r
 idempotent. Check-off is conflict-free (setting the same state twice is a no-op). See
 [ADR-0005](docs/decisions/0005-realtime-lists.md).
 
+On Firebase Hosting, which cannot proxy WebSockets, the same hub messages are mirrored to Firestore
+(one ordered writer thread, Admin SDK). Browsers sign in to Firebase with a custom token minted by
+the API and listen with `onSnapshot`; security rules allow reads only to list members (and, for the
+merchant live feed, to that merchant's staff). PostgreSQL/SQLite stays the source of truth and the
+only place business writes happen; Firestore is a delivery layer the app can run without.
+
 ## 6. Background work
 
 A durable queue in `job_runs` (status, attempts, exponential-backoff retries, dedupe keys) with a
@@ -108,13 +121,23 @@ was not adopted because it requires a broker that is unnecessary at this scale; 
   security- and business-relevant actions, invitation tokens stored hashed with expiry/revocation/
   use limits, secrets only from environment variables (integration settings reject secret-like keys).
 
+### Omnichannel ingestion
+Every sale, whatever the channel (a POS bill through the Orders API, a Shopify `orders/create`
+webhook, a click & collect order from the shopper app, or the POS simulator), goes through one service
+function, `channel_service.ingest_order`. It is idempotent on the external order id, consumes batches
+first-expiry-first-out through the stock ledger, rejects online orders that would oversell, raises
+low-stock alerts, and publishes the order to the merchant's live feed. Connectors authenticate with
+per-merchant API keys stored as SHA-256 hashes.
+
 ## 8. Frontend
 
 React + TypeScript SPA with two route trees and layouts (`/shop/*` shopper, `/merchant/*` store
 team), TanStack Query for server state, shared UI kit (shadcn-style components on Radix primitives
 and Tailwind design tokens), a reusable SVG `StoreMap` (routes, highlights, drag-and-drop
-planogram editing) and a reconnecting `ListSocket`. Vite proxies `/api` and `/media` to the API in
-development; nginx does the same in the container image.
+planogram editing), a reconnecting `ListSocket` and a Firestore channel with the same contract
+(chosen at runtime from `GET /realtime/config`). Vite proxies `/api` and `/media` to the API in
+development; nginx does the same in the container image, and Firebase Hosting rewrites them to Cloud
+Run in the cloud deployment.
 
 ## 9. Deviations from the original brief (and why)
 
@@ -125,3 +148,18 @@ development; nginx does the same in the container image.
 | pgvector for semantic search | Embeddings stored portably (JSON) and scored in NumPy; migration 0002 adds a `vector(256)` column + HNSW index when pgvector exists | Works on SQLite and Postgres without the extension; pgvector column is ready for catalog growth. |
 | shadcn/ui CLI | Hand-written shadcn-style components on Radix + Tailwind tokens | Same design approach without the interactive CLI; components live in `src/components/ui`. |
 | `omnipulse-ai/` folder | Repository root is the project root | The workspace itself is the repository. |
+
+## 10. Google Cloud deployment
+
+| Service | Role |
+|---|---|
+| Cloud Run | Runs the backend container; at most one instance for the demo (in-container SQLite seeded on start), scale to zero with a free Cloud Scheduler keep-warm ping |
+| Firebase Hosting | Serves the SPA; `/api`, `/media`, `/health` rewritten to Cloud Run (same origin, `__session` cookie) |
+| Firestore + Firebase Auth | Real-time shared lists, presence and the merchant live feed; custom tokens and `firestore.rules` scope every read |
+| Gemini | Intent extraction, grounded replies, list parsing, embeddings, vision captions, AI brief; 12 s timeout and a 60 s cooldown fall back to the deterministic provider |
+| Secret Manager | JWT secret and Gemini API key |
+
+The deploy script (`scripts/deploy-gcp.sh`) and [docs/deployment/GCP.md](docs/deployment/GCP.md) describe
+every step. For a production tenant: Cloud SQL (PostgreSQL + pgvector), several Cloud Run instances
+(Firestore already fans out real-time events across instances), a separate worker service, and
+`SEED_ON_STARTUP=false`, `DEMO_LOGIN_ENABLED=false`.

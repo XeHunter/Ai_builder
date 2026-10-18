@@ -41,6 +41,22 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
+    api_keys {
+        uuid merchant_id FK
+        uuid store_id FK
+        string name
+        string channel
+        string provider
+        string prefix
+        string key_hash
+        uuid created_by_id FK
+        timestamptz last_used_at
+        timestamptz revoked_at
+        integer usage_count
+        uuid id PK
+        timestamptz created_at
+        timestamptz updated_at
+    }
     audit_events {
         uuid merchant_id FK
         uuid actor_id FK
@@ -835,6 +851,7 @@ erDiagram
     inventory_items ||--o{ inventory_batches : "inventory_item_id"
     layout_fixtures ||--o{ shelf_locations : "fixture_id"
     merchants ||--o{ affinity_runs : "merchant_id"
+    merchants ||--o{ api_keys : "merchant_id"
     merchants ||--o{ audit_events : "merchant_id"
     merchants ||--o{ coupons : "merchant_id"
     merchants ||--o{ expiry_alerts : "merchant_id"
@@ -910,6 +927,7 @@ erDiagram
     store_layouts ||--o{ product_placements : "layout_id"
     store_layouts ||--o{ shelf_locations : "layout_id"
     stores ||--o{ affinity_runs : "store_id"
+    stores ||--o{ api_keys : "store_id"
     stores ||--o{ expiry_alerts : "store_id"
     stores ||--o{ forecast_runs : "store_id"
     stores ||--o{ fraud_alerts : "store_id"
@@ -930,6 +948,7 @@ erDiagram
     stores ||--o{ weather_records : "store_id"
     users ||--o{ account_security_events : "user_id"
     users ||--o{ affinity_runs : "created_by_id"
+    users ||--o{ api_keys : "created_by_id"
     users ||--o{ audit_events : "actor_id"
     users ||--o{ auth_sessions : "user_id"
     users ||--o{ coupon_redemptions : "customer_id"

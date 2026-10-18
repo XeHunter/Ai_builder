@@ -5,8 +5,21 @@ store's operational intelligence: shoppers find products, plan lists and walk op
 routes, while store teams make evidence-backed inventory, merchandising and pricing decisions — on one
 backend and one data model.
 
-> Runs fully offline in **demo mode** (deterministic AI fallback, simulated weather and store
-> hardware, synthetic data). Real AI providers and integrations plug in via environment variables.
+## Live demo
+
+| | |
+|---|---|
+| **Live app** | **<https://aibuilder-5681b.web.app>** |
+| **Demo video** | [Watch the walkthrough](https://drive.google.com/file/d/17AuKCLtaDLV_kZKliSOzzMLYUu-P2LQS/view?usp=sharing) |
+
+No sign-up needed: on the sign-in page choose **Enter as Customer** (Priya, a shopper at FreshMart
+Andheri) or **Enter as Store Owner** (FreshMart admin). To try photo search, use the sample photos in
+[`data/sample/query_images/`](data/sample/query_images/) (see [Try photo search](#try-photo-search)).
+The live deployment runs on Google Cloud: Cloud Run (API), Firebase Hosting (web app), Firestore with
+Firebase Auth (real-time updates) and Gemini (AI). The demo data resets when the service restarts.
+
+> Locally it also runs fully offline in **demo mode** (deterministic AI fallback, simulated weather and
+> store hardware, synthetic data). Real AI providers and integrations plug in via environment variables.
 
 ## Key features
 
@@ -19,7 +32,9 @@ backend and one data model.
   catalog, blended with colour/layout matching against product images (see [Try photo search](#try-photo-search)).
 - Smart lists from free text with product matching, disambiguation, duplicate merging and aisle
   grouping; optimised multi-stop routes on an interactive store map with turn-by-turn directions.
-- Real-time shared lists (WebSocket) with QR/link invitations, roles, presence and offline resync.
+- Real-time shared lists (Firestore on Google Cloud, WebSocket locally) with QR/link invitations,
+  roles, presence and offline resync.
+- Click & collect: order a list for pickup; it lands on the store's live orders feed.
 - Offers and coupons; consent-based proximity offers and list reminders (with a location simulator).
 
 **For store teams** (`/merchant`)
@@ -35,6 +50,10 @@ backend and one data model.
   product network.
 - Fraud review queue (explainable rules + anomaly scores, human investigation), insights,
   integrations, audit log and background jobs.
+- Gemini **AI morning brief** with prioritised actions built only from verified store data, and a
+  **Channels & orders** page with a live feed of every POS, online and click & collect order.
+- Placement rule book with live compliance: chilled goods, heavy items, and no sweets at checkouts
+  or kids' eye level.
 
 **Plug and play** (`/onboarding`, `/merchant/setup`, `/merchant/channels`)
 - Store-owner self sign-up and a 5-step setup wizard: store → generated floor plan (aisles, shelves,
@@ -113,7 +132,3 @@ product is in the store's catalog; anything else returns the closest-looking ite
 - [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/decisions](docs/decisions/) — architecture and ADRs.
 - [docs/api/endpoints.md](docs/api/endpoints.md) — generated endpoint list; live docs at `/docs`.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — workflow and conventions.
-
-## Status
-A complete, tested reference implementation for local and demo use. It is **not production-ready**
-as-is: see TECHNICAL_README §L (hardening) and §M (simulated features and limitations).

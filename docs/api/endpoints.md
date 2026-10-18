@@ -9,6 +9,7 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 
 | Method | Path | Description |
 |---|---|---|
+| GET | `/api/v1/merchant/ai-brief` | Morning brief written by the configured AI provider (Gemini) from verified operational facts. |
 | GET | `/api/v1/merchant/audit-events` | Audit Events |
 | GET | `/api/v1/merchant/insights` | Insights |
 | GET | `/api/v1/merchant/integrations` | Integrations |
@@ -23,6 +24,8 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 
 | Method | Path | Description |
 |---|---|---|
+| POST | `/api/v1/auth/demo-login` | Sign in as a demo persona without a password (demo deployments only). |
+| GET | `/api/v1/auth/demo-personas` | Whether one-click demo sign-in is available on this deployment (public). |
 | POST | `/api/v1/auth/login` | Exchange credentials for a session. Rate limited per IP and per email. |
 | POST | `/api/v1/auth/logout` | Logout |
 | GET | `/api/v1/auth/me` | Me |
@@ -47,6 +50,20 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 | GET | `/api/v1/stores/{store_id}/products` | Hybrid lexical + embedding search over the store's catalog (or browse when ``q`` is empty). |
 | GET | `/api/v1/stores/{store_id}/products/{product_id}` | Product Detail |
 | GET | `/api/v1/stores/{store_id}/weather` | Store Weather |
+
+## channels
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/ingest/catalog` | Catalog feed for an online store: selling price (promotions / markdowns applied), stock, shelf. |
+| POST | `/api/v1/ingest/orders` | Push a bill / order from any POS or storefront. Idempotent on ``external_id``. |
+| POST | `/api/v1/ingest/shopify/orders` | Shopify ``orders/create`` webhook. Configure the webhook URL with ``?store_code=`` (or bind the key |
+| GET | `/api/v1/merchant/channels` | Overview |
+| POST | `/api/v1/merchant/channels/keys` | Create an API key for a POS / storefront. The secret is returned once and never stored in clear. |
+| DELETE | `/api/v1/merchant/channels/keys/{key_id}` | Revoke Key |
+| GET | `/api/v1/merchant/channels/orders` | Most recent orders across channels (the live feed's history; new ones also arrive via Firestore). |
+| POST | `/api/v1/merchant/channels/sales-history` | Backfill past bills from any POS export (CSV). History only - stock is not changed. |
+| POST | `/api/v1/merchant/channels/simulate` | POS / online simulator: rings up a bill through exactly the same path as a real connector. |
 
 ## cross-selling
 
@@ -130,6 +147,7 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 | POST | `/api/v1/merchant/layouts/{layout_id}/placements` | Place or move a product on a draft layout. Hard constraints block; soft ones return warnings. |
 | DELETE | `/api/v1/merchant/layouts/{layout_id}/placements/{placement_id}` | Remove Placement |
 | POST | `/api/v1/merchant/layouts/{layout_id}/publish` | Publish |
+| GET | `/api/v1/merchant/layouts/{layout_id}/rules` | The placement rule book with live compliance for this layout (what the editor and the AI enforce). |
 | GET | `/api/v1/merchant/merchandising/recommendations` | List Recs |
 | POST | `/api/v1/merchant/merchandising/recommendations/generate` | Generate |
 | GET | `/api/v1/merchant/merchandising/recommendations/{rec_id}` | Get Rec |
@@ -148,6 +166,19 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 | GET | `/api/v1/notifications` | List Notifications |
 | POST | `/api/v1/notifications/read-all` | Mark All Read |
 | POST | `/api/v1/notifications/{notification_id}/read` | Mark Read |
+
+## onboarding
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/merchant/onboarding/finish` | Generate missing product images, rebuild the search index and run the first analytics. |
+| GET | `/api/v1/merchant/onboarding/status` | Onboarding Status |
+| POST | `/api/v1/merchant/stores` | Create Store |
+| POST | `/api/v1/merchant/stores/{store_id}/layout-generate` | Save the generated plan: active for a new store, or a draft when products are already placed. |
+| POST | `/api/v1/merchant/stores/{store_id}/layout-preview` | Generate a floor plan from the parameters without saving it. |
+| GET | `/api/v1/merchant/stores/{store_id}/starter-catalog.csv` | Sample catalog in the standard import format with shelf codes from this store's layout. |
+| GET | `/api/v1/merchant/stores/{store_id}/starter-sales.csv` | Sample POS export (sales history) generated over this store's own catalog. |
+| POST | `/api/v1/onboarding/merchant` | Self-service sign-up for a store owner. Creates the tenant with default policies and signs in. |
 
 ## pricing
 
@@ -181,6 +212,14 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 | GET | `/api/v1/offers` | Offers |
 | POST | `/api/v1/offers/{promo_id}/claim` | Claim a coupon for an active, non-proximity promotion (proximity offers are issued by the geofence flow). |
 
+## realtime
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/realtime/config` | Which transport the browser should use. Firestore when the deployment has Firebase enabled. |
+| POST | `/api/v1/realtime/lists/{list_id}/subscribe` | Make sure the Firestore list document carries the current members before the browser listens. |
+| POST | `/api/v1/realtime/token` | Firebase Auth custom token for the signed-in user (uid = user id, claims scope Firestore reads). |
+
 ## shared-shopping
 
 | Method | Path | Description |
@@ -213,6 +252,7 @@ WebSocket: `GET /api/v1/ws/shopping-lists/{list_id}` (see TECHNICAL_README §F).
 | POST | `/api/v1/shopping-lists/{list_id}/items` | Add an item by free text (matched to the catalog) or by product id. Duplicates are merged. |
 | DELETE | `/api/v1/shopping-lists/{list_id}/items/{item_id}` | Remove Item |
 | PATCH | `/api/v1/shopping-lists/{list_id}/items/{item_id}` | Change quantity/unit/product match (optimistic ``expected_version``) or collect/uncollect. |
+| POST | `/api/v1/shopping-lists/{list_id}/order` | Click & collect: order the list's matched, uncollected items for pickup at the list's store. |
 | POST | `/api/v1/shopping-lists/{list_id}/route` | Optimised walking route through the store for the list's uncollected items. |
 
 ## store-navigation

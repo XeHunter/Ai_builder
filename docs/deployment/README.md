@@ -1,5 +1,8 @@
 # Deployment notes
 
+> The live demo runs on Google Cloud (Cloud Run + Firebase Hosting + Firestore + Gemini). That setup
+> is documented in [GCP.md](GCP.md); the notes below cover a self-hosted container deployment.
+
 ## Topology
 ```
             ┌──────────── HTTPS (TLS at LB/ingress) ────────────┐
