@@ -23,7 +23,12 @@ def test_demo_reset_rebuilds_the_demo(client, admin, db, monkeypatch):
                        json={"store_id": _store(client, admin)}).status_code == 201
     assert client.post(f"{API}/demo/reset", headers={"X-Reset-Token": "wrong"}).status_code == 403
 
+    # data already built today (fresh instance): nothing to do unless forced
+    demo_service.mark_seeded()
     r = client.post(f"{API}/demo/reset", headers={"X-Reset-Token": "s3cret-token"})
+    assert r.status_code == 200 and r.json()["status"] == "already_fresh"
+
+    r = client.post(f"{API}/demo/reset", params={"force": True}, headers={"X-Reset-Token": "s3cret-token"})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "reset" and r.json()["merchants"] == 2
 

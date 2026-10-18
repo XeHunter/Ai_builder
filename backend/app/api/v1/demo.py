@@ -14,7 +14,7 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 
 
 @router.post("/reset")
-def reset(x_reset_token: str | None = Header(default=None)) -> dict:
+def reset(force: bool = False, x_reset_token: str | None = Header(default=None)) -> dict:
     """Wipe and reseed the demo data with today's dates. Needs ``X-Reset-Token`` = ``DEMO_RESET_TOKEN``.
 
     Disabled (404) unless the deployment is a demo with a reset token configured."""
@@ -23,4 +23,4 @@ def reset(x_reset_token: str | None = Header(default=None)) -> dict:
         raise NotFoundError("Not found")
     if not x_reset_token or not hmac.compare_digest(x_reset_token, s.demo_reset_token):
         raise PermissionDeniedError("Invalid reset token")
-    return demo_service.reset_demo_data()
+    return demo_service.reset_demo_data(force=force)

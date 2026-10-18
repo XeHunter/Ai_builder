@@ -104,7 +104,7 @@ MIN_INSTANCES=0
 if [ "${ALWAYS_ON:-0}" = "1" ]; then MIN_INSTANCES=1; fi
 gcloud run deploy "$SERVICE" --source "$ROOT/backend" --region "$REGION" --service-account "$SA" \
   --allow-unauthenticated --min-instances "$MIN_INSTANCES" --max-instances 1 --cpu 2 --memory 2Gi --cpu-boost \
-  --timeout 300 --concurrency 80 \
+  --timeout 900 --concurrency 80 \
   --set-secrets "$SECRETS" \
   --set-env-vars "^@^APP_ENV=production@DEMO_MODE=true@DEMO_LOGIN_ENABLED=true@SEED_ON_STARTUP=true@LOG_JSON=true@COOKIE_SECURE=true@SESSION_COOKIE_NAME=__session@CORS_ORIGINS=${WEB_ORIGINS}@FRONTEND_BASE_URL=https://${PROJECT}.web.app@AI_PROVIDER=${AI_PROVIDER}@FIREBASE_ENABLED=true@FIREBASE_PROJECT_ID=${PROJECT}@MEDIA_DIR=/app/media@SAMPLE_DATA_DIR=/app/media/sample@JOBS_EAGER=true@RUN_WORKER_IN_PROCESS=false@ENABLE_SCHEDULER=false@AI_REQUEST_TIMEOUT_SECONDS=12${GEMINI_ENV}"
 
@@ -125,11 +125,13 @@ RESET_TOKEN="$(gcloud secrets versions access latest --secret=omnipulse-reset-to
 if gcloud scheduler jobs describe omnipulse-nightly-reset --location "$REGION" >/dev/null 2>&1; then
   gcloud scheduler jobs update http omnipulse-nightly-reset --location "$REGION" --schedule "0 3 * * *" \
     --time-zone "Asia/Kolkata" --uri "${RUN_URL}/api/v1/demo/reset" --http-method POST \
-    --update-headers "X-Reset-Token=${RESET_TOKEN}" --attempt-deadline 300s >/dev/null
+    --update-headers "X-Reset-Token=${RESET_TOKEN}" --attempt-deadline 900s \
+    --max-retry-attempts 2 --min-backoff 120s >/dev/null
 else
   gcloud scheduler jobs create http omnipulse-nightly-reset --location "$REGION" --schedule "0 3 * * *" \
     --time-zone "Asia/Kolkata" --uri "${RUN_URL}/api/v1/demo/reset" --http-method POST \
-    --headers "X-Reset-Token=${RESET_TOKEN}" --attempt-deadline 300s >/dev/null
+    --headers "X-Reset-Token=${RESET_TOKEN}" --attempt-deadline 900s \
+    --max-retry-attempts 2 --min-backoff 120s >/dev/null
 fi
 
 step "Frontend build"

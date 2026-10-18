@@ -39,6 +39,9 @@ def _seed_if_empty() -> None:
             seed_demo(db)
             db.commit()
             log.info("Demo dataset seeded on startup in %.1fs", time.time() - t0)
+        from app.services.demo_service import mark_seeded
+
+        mark_seeded()
     finally:
         db.close()
 

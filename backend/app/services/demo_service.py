@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import inspect, text
 
@@ -21,9 +23,25 @@ log = get_logger(__name__)
 _lock = threading.Lock()
 # Seed size for a reset; the test-suite lowers it.
 SEED_KWARGS: dict = {}
+IST = ZoneInfo("Asia/Kolkata")
+_seeded_on: date | None = None
 
 
-def reset_demo_data() -> dict:
+def today_ist() -> date:
+    return datetime.now(IST).date()
+
+
+def mark_seeded() -> None:
+    """Record that the demo data was (re)built today, e.g. by the startup seed of a fresh instance."""
+    global _seeded_on
+    _seeded_on = today_ist()
+
+
+def reset_demo_data(force: bool = False) -> dict:
+    """Rebuild the demo data. Skipped when it was already built today (a freshly started instance has
+    just seeded it), unless ``force``; this keeps a cold start + reset inside the request timeout."""
+    if not force and _seeded_on == today_ist():
+        return {"status": "already_fresh", "seeded_on": _seeded_on.isoformat()}
     if not _lock.acquire(blocking=False):
         raise ConflictError("A demo reset is already running")
     try:
@@ -56,6 +74,7 @@ def reset_demo_data() -> dict:
         finally:
             db.close()
         _clear_caches()
+        mark_seeded()
         took = round(time.time() - t0, 1)
         log.info("Demo data reset in %.1fs", took)
         return {"status": "reset", "seconds": took,
